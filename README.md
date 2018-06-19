@@ -40,7 +40,7 @@ TODO: Link
 
 ---
 
-For further fully functional attack examples, check the following repos:
+For further fully functional model examples, check the following repos:
 
 - ResNet18 TensorFlow Model: https://gitlab.crowdai.org/bveliqi/resnet18-baseline-model
 - TODO: Link 2
@@ -57,17 +57,7 @@ TODO: Describe test package here.
 ```
 docker rm -f model-template || true
 nvidia-docker run -d \
-      --shm-size 16G \
-      --name model-template \
-      -e NUM_OF_IMAGES=10 \
-      -it bveliqi/model-template:0.1 \
-      bash run.sh
-```
-
-
-```
-docker rm -f model-template || true
-docker run -it \
+      --shm-size 3G \
       --name model-template \
       -e NUM_OF_IMAGES=10 \
       -it bveliqi/model-template:0.1 \
