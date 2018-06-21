@@ -1,5 +1,6 @@
 {
     "challenge_id" : "NIPS18-ADVERSARIAL-VISION-CHALLENGE",
+    "track": "MODEL",
     "authors" : ["bveliqi"],
     "description" : "model template"
 }

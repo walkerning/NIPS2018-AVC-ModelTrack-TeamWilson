@@ -25,6 +25,7 @@ model_server(foolbox_model)
 Define the following properties in the crowdai.json:
 
 - challenge_id: "NIPS18-ADVERSARIAL-VISION-CHALLENGE"
+- track: "TARGETED_ATTACK", "UNTARGETED_ATTACK" or "MODEL"
 - authors: your crowdai username
 - description: a description of your model
 
