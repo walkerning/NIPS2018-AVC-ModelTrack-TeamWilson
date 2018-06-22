@@ -1,2 +1,2 @@
 echo "Running model server"
-python main.py
+python ./main.py
