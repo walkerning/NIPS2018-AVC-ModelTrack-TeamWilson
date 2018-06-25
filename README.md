@@ -24,8 +24,8 @@ model_server(foolbox_model)
 
 Define the following properties in the crowdai.json:
 
-- challenge_id: "nips2018-avc-robust-model-track"
-- grader_id: "nips2018-avc-robust-model-track"
+- challenge_id: "nips-2018-avc-robust-model-track"
+- grader_id: "nips-2018-avc-robust-model-track"
 - authors: your crowdai username
 - description: a description of your model
 
