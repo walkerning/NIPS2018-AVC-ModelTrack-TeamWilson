@@ -1,6 +1,6 @@
 {
-    "challenge_id" : "nips2018-avc-robust-model-track",
-    "grader_id": "nips2018-avc-robust-model-track",
+    "challenge_id" : "nips-2018-avc-robust-model-track",
+    "grader_id": "nips-2018-avc-robust-model-track",
     "authors" : ["bveliqi"],
     "description" : "model template",
     "gpu": true
