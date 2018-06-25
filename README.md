@@ -36,15 +36,10 @@ Define the entrypoint command that should be run when the built docker image is 
 
 ---
 
-For a more detailed description please check:
-TODO: Link
-
----
-
 For further fully functional model examples, check the following repos:
 
 - ResNet18 TensorFlow Model: https://gitlab.crowdai.org/bveliqi/resnet18-baseline-model
-- TODO: Link 2
+- ResNet18 Frozen Noise TensorFlow Model: https://gitlab.crowdai.org/jonasrauber/resnet18-frozen-noise-baseline-model
 - TODO: Link 3
 - TODO: Link 4
 - TODO: Link 5
@@ -53,14 +48,17 @@ For further fully functional model examples, check the following repos:
 
 # Test
 
-TODO: Describe test package here.
+Within the root-folder of this repository, simple run:
 
-```
-docker rm -f model-template || true
-nvidia-docker run -d \
-      --shm-size 3G \
-      --name model-template \
-      -e NUM_OF_IMAGES=10 \
-      -it bveliqi/model-template:0.1 \
-      bash run.sh
-```
+```avc-test-model --gpu 1 .```
+
+Please always make sure that you have the newest version of the `adversarial-vision-challenge` library installed.
+
+
+# Submit
+
+Submissions are done by pushing an arbitraty git tag to your repository, by running something like:
+
+```TAG=your_submission_tag bash -c 'git tag $TAG && git push origin $TAG'```
+
+Please use a new tag for every new submission.
