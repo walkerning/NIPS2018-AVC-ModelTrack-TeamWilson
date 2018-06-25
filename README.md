@@ -1,3 +1,8 @@
+# Get Started
+
+To get started, please simply fork this GitLab repository and
+follow the structure, testing and submissions guidelines below.
+
 # Repository Structure
 
 ### Define your dependencies
@@ -57,8 +62,14 @@ Please always make sure that you have the newest version of the `adversarial-vis
 
 # Submit
 
-Submissions are done by pushing an arbitraty git tag to your repository, by running something like:
+Submissions are done by simply running:
 
-```TAG=your_submission_tag bash -c 'git tag $TAG && git push origin $TAG'```
+```avc-submit /path/to/your/repo```
 
-Please use a new tag for every new submission.
+or simply `avc-submit .` from within the root folder of this repo.
+
+You can define your own submisson tag via `--tag your_tag`, 
+otherwise a random one will be generated.
+
+If you define your own, please use a new tag for every new submission.
+Every submission will create a new GitLab issue, where you can track the progress.
