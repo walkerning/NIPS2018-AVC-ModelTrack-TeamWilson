@@ -55,7 +55,7 @@ For further fully functional model examples, check the following repos:
 
 Within the root-folder of this repository, simple run:
 
-```avc-test-model --gpu 1 .```
+```avc-test-model --gpu 0 .```
 
 Please always make sure that you have the newest version of the `adversarial-vision-challenge` library installed.
 
