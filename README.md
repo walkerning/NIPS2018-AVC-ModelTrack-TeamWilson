@@ -1,3 +1,8 @@
+# Get Started
+
+To get started, please simply fork this GitLab repository and
+follow the structure, testing and submissions guidelines below.
+
 # Repository Structure
 
 ### Define your dependencies
@@ -24,8 +29,8 @@ model_server(foolbox_model)
 
 Define the following properties in the crowdai.json:
 
-- challenge_id: "NIPS18-ADVERSARIAL-VISION-CHALLENGE"
-- track: "TARGETED_ATTACK", "UNTARGETED_ATTACK" or "MODEL"
+- challenge_id: "nips-2018-avc-robust-model-track"
+- grader_id: "nips-2018-avc-robust-model-track"
 - authors: your crowdai username
 - description: a description of your model
 
@@ -36,15 +41,10 @@ Define the entrypoint command that should be run when the built docker image is 
 
 ---
 
-For a more detailed description please check:
-TODO: Link
-
----
-
 For further fully functional model examples, check the following repos:
 
 - ResNet18 TensorFlow Model: https://gitlab.crowdai.org/bveliqi/resnet18-baseline-model
-- TODO: Link 2
+- ResNet18 Frozen Noise TensorFlow Model: https://gitlab.crowdai.org/jonasrauber/resnet18-frozen-noise-baseline-model
 - TODO: Link 3
 - TODO: Link 4
 - TODO: Link 5
@@ -53,14 +53,23 @@ For further fully functional model examples, check the following repos:
 
 # Test
 
-TODO: Describe test package here.
+Within the root-folder of this repository, simple run:
 
-```
-docker rm -f model-template || true
-nvidia-docker run -d \
-      --shm-size 3G \
-      --name model-template \
-      -e NUM_OF_IMAGES=10 \
-      -it bveliqi/model-template:0.1 \
-      bash run.sh
-```
+```avc-test-model .```
+
+Please always make sure that you have the newest version of the `adversarial-vision-challenge` library installed.
+
+
+# Submit
+
+Submissions are done by simply running:
+
+```avc-submit /path/to/your/repo```
+
+or simply `avc-submit .` from within the root folder of this repo.
+
+You can define your own submisson tag via `--tag your_tag`, 
+otherwise a random one will be generated.
+
+If you define your own, please use a new tag for every new submission.
+Every submission will create a new GitLab issue, where you can track the progress.

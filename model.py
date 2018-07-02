@@ -1,5 +1,7 @@
+import numpy as np
+
 class MockModel:
-    """ 
+    """
         This is just a mock.
         For a submission, you would normally use a foolbox wrapped model here,
         based on your framework of choice.
@@ -10,8 +12,10 @@ class MockModel:
     def channel_axis(self):
         return 1
 
-    def predictions(self):
-        return 42
+    def predictions(self, images):
+        lower_bound = self.bounds()[0]
+        upper_bound = self.bounds()[1]
+        return np.random.randint(lower_bound, upper_bound)
 
     def bounds(self):
         return (0, 255)

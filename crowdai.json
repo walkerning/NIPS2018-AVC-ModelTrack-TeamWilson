@@ -1,6 +1,7 @@
 {
-    "challenge_id" : "NIPS18-ADVERSARIAL-VISION-CHALLENGE",
-    "track": "MODEL",
+    "challenge_id" : "nips-2018-avc-robust-model-track",
+    "grader_id": "nips-2018-avc-robust-model-track",
     "authors" : ["bveliqi"],
-    "description" : "model template"
+    "description" : "model template",
+    "gpu": true
 }
