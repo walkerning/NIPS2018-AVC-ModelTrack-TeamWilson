@@ -3,5 +3,5 @@
     "grader_id": "nips-2018-avc-untargeted-attack",
     "authors" : ["wielandbrendel"],
     "description" : "iterative transfer baseline attack",
-    "gpu": false
+    "gpu": true
 }
