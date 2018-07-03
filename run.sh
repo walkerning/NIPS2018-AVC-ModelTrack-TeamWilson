@@ -1,2 +1,2 @@
-echo "Starting Server..."
-python ./main.py
+echo "Running attack..."
+python3 -u ./main.py
