@@ -1,5 +1,4 @@
 from adversarial_vision_challenge import model_server
-from foolbox.models import PyTorchModel
 from model import create_mock_model
 
 
