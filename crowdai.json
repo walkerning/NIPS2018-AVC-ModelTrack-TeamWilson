@@ -1,7 +1,7 @@
 {
     "challenge_id" : "nips-2018-avc-untargeted-attack",
     "grader_id": "nips-2018-avc-untargeted-attack",
-    "authors" : ["bveliqi"],
-    "description" : "salt-and-pepper baseline attack",
+    "authors" : ["wielandbrendel"],
+    "description" : "iterative transfer baseline attack",
     "gpu": false
 }
