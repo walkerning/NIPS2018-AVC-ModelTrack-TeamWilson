@@ -1,2 +1,2 @@
-echo "Running model server"
-python ./main.py
+echo "Running attack..."
+python3 -u ./main.py
