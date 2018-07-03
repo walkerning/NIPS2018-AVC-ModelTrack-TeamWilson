@@ -3,6 +3,7 @@ from fmodel import create_fmodel
 from adversarial_vision_challenge import load_model
 from adversarial_vision_challenge import read_images
 from adversarial_vision_challenge import store_adversarial
+from adversarial_vision_challenge import attack_complete
 
 
 def run_attack(model, image, label):
@@ -25,6 +26,11 @@ def main():
     for (file_name, image, label) in read_images():
         adversarial = run_attack(model, image, label)
         store_adversarial(file_name, adversarial)
+
+    # Announce that the attack is complete
+    # NOTE: In the absence of this call, your submission will timeout
+    # while being graded.
+    attack_complete()
 
 
 if __name__ == '__main__':
