@@ -43,8 +43,8 @@ Define the entrypoint command that should be run when the built docker image is 
 
 For further fully functional model examples, check the following repos:
 
-- ResNet18 TensorFlow Model: https://gitlab.crowdai.org/bveliqi/resnet18-baseline-model
-- ResNet18 Frozen Noise TensorFlow Model: https://gitlab.crowdai.org/jonasrauber/resnet18-frozen-noise-baseline-model
+- ResNet18 TensorFlow Model: https://gitlab.crowdai.org/adversarial-vision-challenge/resnet18_model_baseline
+- ResNet18 Frozen Noise TensorFlow Model: https://gitlab.crowdai.org/adversarial-vision-challenge/resnet18_frozen_noise_model_baseline
 - TODO: Link 3
 - TODO: Link 4
 - TODO: Link 5
