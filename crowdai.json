@@ -1,7 +1,7 @@
 {
     "challenge_id" : "nips-2018-avc-robust-model-track",
     "grader_id": "nips-2018-avc-robust-model-track",
-    "authors" : ["wilson"],
-    "description" : "first try",
+    "authors" : ["nics-tsinghua"],
+    "description" : "nics-tsinghua",
     "gpu": true
 }
