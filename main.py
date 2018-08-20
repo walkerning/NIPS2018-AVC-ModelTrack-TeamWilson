@@ -79,10 +79,16 @@ def main(types, save):
     p.wait()
     ip = p.stdout.read()[:-1].decode('UTF-8')
     
-    p = subprocess.Popen("docker port  avc_test_model_submission_foxfi | cut -d/ -f1", shell=True, stdout=subprocess.PIPE)
+    p = subprocess.Popen("docker port " + container_name + " | cut -d/ -f1", shell=True, stdout=subprocess.PIPE)
     port = p.stdout.read()[:-1].decode('UTF-8')
+
+    p = subprocess.Popen("docker exec " + container_name + " bash -c 'echo $EVALUATOR_SECRET'", shell=True, stdout=subprocess.PIPE)
+    env_sec = p.stdout.read()[:-1].decode('UTF-8')
+
     os.environ["MODEL_SERVER"] = ip
     os.environ["MODEL_PORT"] = port
+    os.environ["EVALUATOR_SECRET"] = env_sec
+
     print('model url: ', "http://{ip}:{port}".format(ip=ip, port=port))
 
     forward_model = load_model()
