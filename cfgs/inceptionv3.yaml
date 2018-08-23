@@ -1,0 +1,7 @@
+models:
+  - weight: 1
+    type: inceptionv3
+    checkpoint: dmodels/inceptionv3/checkpoints/inception_v3.ckpt
+    cfg:
+      num_classes: 1001
+      mapping: dmodels/inceptionv3/checkpoints/inception_v3_mapping1001.txt

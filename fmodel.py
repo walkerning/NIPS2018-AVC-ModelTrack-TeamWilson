@@ -1,58 +1,52 @@
-import tensorflow as tf
+# -*- coding: utf-8 -*-
 import os
-from foolbox.models import TensorFlowModel
+import importlib
 
-from resnet18.resnet_model import Model
+import yaml
+import numpy as np
 
-def create_model():
-    graph = tf.Graph()
-    with graph.as_default():
-        images = tf.placeholder(tf.float32, (None, 64, 64, 3))
+from foolbox.models import Model
+from foolbox.models import DifferentiableModel
 
-        # preprocessing
-        _R_MEAN = 123.68
-        _G_MEAN = 116.78
-        _B_MEAN = 103.94
-        _CHANNEL_MEANS = [_R_MEAN, _G_MEAN, _B_MEAN]
-        features = images - tf.constant(_CHANNEL_MEANS)
+class EnsembleModel(DifferentiableModel):
+    def num_classes(self):
+        pass
 
-        model = Model(
-            resnet_size=18,
-            bottleneck=False,
-            num_classes=200,
-            num_filters=64,
-            kernel_size=3,
-            conv_stride=1,
-            first_pool_size=0,
-            first_pool_stride=2,
-            second_pool_size=7,
-            second_pool_stride=1,
-            block_sizes=[2, 2, 2, 2],
-            block_strides=[1, 2, 2, 2],
-            final_size=512,
-            version=2,
-            data_format=None)
+    def __init__(self, models, cfgs, bounds=(0, 255), channel_axis=3, preprocessing=(0, 1)):
+        super(EnsembleModel, self).__init__(bounds, channel_axis, preprocessing)
+        self.models = models
+        self.cfgs = cfgs
+        self.num_classes = models[0].num_classes
+        self.names = [cfg.get("name", cfg["type"]) for cfg in cfgs]
+        self.weights = np.array([cfg.get("weight", 1.0) for cfg in cfgs])
+        self.weights = self.weights / np.sum(self.weights)
 
-        logits = model(features, False)
+    def batch_predictions(self, images):
+        predictions = [m.batch_predictions(images) for m in self.models]
+        return np.sum(self.weights.reshape(len(self.models), 1, 1) * predictions, axis=0)
 
-        with tf.variable_scope('utilities'):
-            saver = tf.train.Saver()
-
-    return graph, saver, images, logits
-
+    def predictions_and_gradient(self, image, label):
+        predictions, gradients = zip(*[m.predictions_and_gradient(image, label) for m in self.models])
+        predictions = np.array(predictions); gradients = np.array(gradients)
+        assert predictions.ndim == 2
+        assert gradient.shape[1:] == image.shape
+        predictions = np.sum(self.weight[:, np.newaxis] * predictions, axis=0)
+        gradients = np.sum(self.weight[:, np.newaxis, np.newaxis] * gradients, axis=0)
+        return predictions, gradient
 
 def create_fmodel():
-    graph, saver, images, logits = create_model()
-    sess = tf.Session(graph=graph)
-    path = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.join(path, 'resnet18', 'checkpoints', 'model')
-    saver.restore(sess, tf.train.latest_checkpoint(path))
-
-    with sess.as_default():
-        fmodel = TensorFlowModel(images, logits, bounds=(0, 255))
+    here = os.path.dirname(os.path.abspath(__file__))
+    model_cfg_file = os.path.join(here, "model.yaml")
+    with open(model_cfg_file, "r") as f:
+        model_cfg = yaml.load(f)
+    models = []
+    for m in model_cfg["models"]:
+        mod = importlib.import_module("dmodels." + m["type"])
+        assert hasattr(mod, "Model"), "model package must have an attribute named Model"
+        models.append(mod.Model.create_fmodel(m))
+    fmodel = EnsembleModel(models, model_cfg["models"])
     return fmodel
 
-
-if __name__ == '__main__':
+if __name__ ==  "__main__":
     # executable for debuggin and testing
     print(create_fmodel())
