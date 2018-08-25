@@ -1,11 +1,14 @@
 #!/home/foxfi/anaconda3/bin/python3
 import os
 import pwd
+import yaml
 import logging
 import argparse
 import subprocess
+import pickle
 
 import numpy as np
+from scipy.misc import imread
 
 import foolbox
 from fmodel import create_fmodel
@@ -14,17 +17,48 @@ from adversarial_vision_challenge import read_images
 from adversarial_vision_challenge import store_adversarial
 from adversarial_vision_challenge import attack_complete
 
-def iterative_transfer_attack(model, image, label):
+class ImageReader(object):
+    available_methods = ["npy", "img"]
+    def __init__(self, tp):
+        assert tp in self.available_methods
+        self.tp = tp
+
+    def _read_image(self, key):
+        input_folder = os.getenv('INPUT_IMG_PATH')
+        img_path = os.path.join(input_folder, key)
+        image = imread(img_path)
+        assert image.dtype == np.uint8
+        image = image.astype(np.float32)
+        return image
+
+    def read_images(self):
+        if self.tp == "npy":
+            for key, im, label in read_images():
+                yield (key, im, label)
+        else: # img
+            filepath = os.getenv('INPUT_YML_PATH')
+            with open(filepath, 'r') as ymlfile:
+                data = yaml.load(ymlfile)
+            for key in data.keys():
+                im = self._read_image(key)
+                if im.shape != (64, 64, 3):
+                    logging.warning("shape of image read from file {} is not (64, 64, 3). ignore.".format(key))
+                    continue
+                yield (key, im, data[key])
+    
+def iterative_transfer_attack(model, image, label, verbose=False):
     criterion = foolbox.criteria.Misclassification()
     attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
     return attack(image, label)
 
-def transfer_attack(model, image, label):
+def transfer_attack(model, image, label, verbose=False):
     criterion = foolbox.criteria.Misclassification()
     attack = foolbox.attacks.GradientAttack(model, criterion)
     return attack(image, label, epsilons=100)
 
-def gaussian_attack(model, image, label):
+def gaussian_attack(model, image, label, verbose=False):
+    if model(image) != label:
+        return image
     epsilon = 1e-4
 
     perturbed_image = None
@@ -46,12 +80,12 @@ def gaussian_attack(model, image, label):
 
     return perturbed_image
 
-def saltnpepper_attack(model, image, label):
+def saltnpepper_attack(model, image, label, verbose=False):
     criterion = foolbox.criteria.Misclassification()
     attack = foolbox.attacks.SaltAndPepperNoiseAttack(model, criterion)
     return attack(image, label, epsilons=50, repetitions=10)
 
-def boundary_attack(model, image, label):
+def boundary_attack(model, image, label, verbose=False):
     criterion = foolbox.criteria.Misclassification()
     init_attack = foolbox.attacks.BlendedUniformNoiseAttack(model, criterion)
     init_adversarial = init_attack(
@@ -64,12 +98,12 @@ def boundary_attack(model, image, label):
     else:
         attack = foolbox.attacks.BoundaryAttack(model, criterion)
         return attack(image, label, iterations=45, max_directions=10,
-                      tune_batch_size=False, starting_point=init_adversarial)
+                      tune_batch_size=False, starting_point=init_adversarial, verbose=verbose)
 
 avail_attacks = ["gaussian", "saltnpepper", "boundary", "transfer", "iterative_transfer"]
 bms = {n: globals()[n + "_attack"] for n in avail_attacks}
 
-def main(types, save):
+def main(reader, types, save, verbose=False):
     # instantiate blackbox and substitute model
     test_user = pwd.getpwuid(os.getuid()).pw_name
     container_name = 'avc_test_model_submission_{}'.format(test_user)
@@ -102,15 +136,36 @@ def main(types, save):
             forward_model=forward_model,
             backward_model=backward_model)
 
-    for ind, (file_name, image, label) in enumerate(read_images()):
+    distance = []
+    clean_predicts = []
+    accuracy_counter = 0
+    num_test = 0
+    for ind, (file_name, image, label) in enumerate(reader.read_images()):
+        num_test += 1
+        predict_label = forward_model(image)
+        clean_predicts.append((file_name, predict_label, label))
+        print("image {}: {} {}".format(file_name, predict_label, label))
+        if predict_label != label:
+            accuracy_counter += 1
         for tp in types:
-            print("image {}: {} attack".format(ind+1, tp))
             if not tp.endswith("transfer"):
-                adversarial = bms[tp](forward_model, image, label)
+                adversarial = bms[tp](forward_model, image, label, verbose=verbose)
             else:
-                adversarial = bms[tp](transfer_model, image, label)                
+                adversarial = bms[tp](transfer_model, image, label, verbose=verbose)
+            pixel_dis = 100
+            if isinstance(adversarial, np.ndarray):
+                pixel_dis = np.mean(np.abs(adversarial - image))
+            distance.append(pixel_dis)
+            print("image {}: {} attack / distance: {}".format(ind+1, tp, pixel_dis))
             if args.save:
-                store_adversarial(os.path.join(tp, file_name), adversarial)
+                # store_adversarial(os.path.join(tp, file_name + "_" + str(pixel_dis)), adversarial)
+                store_adversarial(os.path.join(tp, os.path.basename(file_name)), adversarial)
+
+    print("test accuracy: {:.2f}%".format(100. - accuracy_counter * 100. / num_test))
+    open("file_predict_label.txt", "w").write("\n".join(["{} {} {}".format(*x) for x in clean_predicts]))
+    if len(types) == 1:
+        distance_array = np.array(distance)
+        print("median pixel distance: {}, mean pixel distance: {}".format(np.median(distance_array), distance_array.mean()))
 
     # Announce that the attack is complete
     # NOTE: In the absence of this call, your submission will timeout
@@ -125,11 +180,13 @@ if __name__ == '__main__':
     parser.add_argument("--save", default=None, type=str, help="save adversarial to folder")
     parser.add_argument("--image-path", default=os.path.expanduser("~/test_images"), type=str, help="image base path")
     parser.add_argument("-v", "--verbose", default=False, action="store_true", help="print verbose info")
-    parser.add_argument("-t", "--type", action="append", choices=avail_attacks, help="what attack to be performed", required=True)
+    parser.add_argument("-t", "--type", action="append", choices=avail_attacks, default=[], help="what attack to be performed") # , required=True)
+    parser.add_argument("--image-type", choices=ImageReader.available_methods, default="npy", help="image type")
 
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     os.environ["INPUT_YML_PATH"] = args.test_file
+    os.environ["INPUT_IMG_PATH"] = args.image_path
     if args.save is not None:
         os.environ["OUTPUT_ADVERSARIAL_PATH"] = args.save
         for tp in args.type:
@@ -138,7 +195,6 @@ if __name__ == '__main__':
         logging.basicConfig(level=logging.INFO)
     else:
         logging.basicConfig(level=logging.WARNING)
-    os.environ["INPUT_IMG_PATH"] = args.image_path
 
-
-    main(args.type, args.save is not None)
+    reader = ImageReader(args.image_type)
+    main(reader, args.type, args.save is not None, verbose=args.verbose)
