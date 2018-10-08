@@ -45,11 +45,39 @@ class ImageReader(object):
                     logging.warning("shape of image read from file {} is not (64, 64, 3). ignore.".format(key))
                     continue
                 yield (key, im, data[key])
-    
+
+def lbfgs_attack(model, image, label, verbose=False):
+    criterion = foolbox.criteria.Misclassification()
+    attack = foolbox.attacks.LBFGSAttack(model, criterion)
+    return attack(image, label)
+
+def local_search_attack(model, image, label, verbose=False):
+    criterion = foolbox.criteria.Misclassification()
+    attack = foolbox.attacks.LocalSearchAttack(model, criterion)
+    return attack(image, label)
+
 def iterative_transfer_attack(model, image, label, verbose=False):
     criterion = foolbox.criteria.Misclassification()
     attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
     return attack(image, label)
+
+def pgd_attack(model, image, label, verbose=False):
+    criterion = foolbox.criteria.Misclassification()
+    attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
+    # return attack(image, label, binary_search=False, epsilon=0.3, stepsize=0.005, iterations=10)
+    return attack(image, label, binary_search=False, epsilon=0.3, stepsize=0.01, iterations=10)
+
+def pgd_bigiter_attack(model, image, label, verbose=False):
+    criterion = foolbox.criteria.Misclassification()
+    attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
+    # return attack(image, label, binary_search=False, epsilon=0.3, stepsize=0.005, iterations=10)
+    return attack(image, label, binary_search=False, epsilon=0.3, stepsize=0.04, iterations=10)
+
+def iterative_transfer_fix_attack(model, image, label, verbose=False):
+    criterion = foolbox.criteria.Misclassification()
+    attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
+    # return attack(image, label, binary_search=False, epsilon=0.3, stepsize=0.005, iterations=10)
+    return attack(image, label, binary_search=False, epsilon=0.3, stepsize=0.02, iterations=10)    
 
 def transfer_attack(model, image, label, verbose=False):
     criterion = foolbox.criteria.Misclassification()
@@ -100,41 +128,64 @@ def boundary_attack(model, image, label, verbose=False):
         return attack(image, label, iterations=45, max_directions=10,
                       tune_batch_size=False, starting_point=init_adversarial, verbose=verbose)
 
-avail_attacks = ["gaussian", "saltnpepper", "boundary", "transfer", "iterative_transfer"]
+# ch_attack_methods = {}
+# def cleverhans_wrapper(method, param):
+#     def _wrapper(func):
+#         ch_attack_methods[func.__name__] = None
+#         def _func(model, image, label, verbose=False):
+#             if attack_methods[func.__name__] is None:
+#                 sess = tf.get_default_session()
+#                 ch_attack_methods[func.__name__] = method(model, sess=sess)
+#             method = ch_attack_methods[func.__name__]
+#             adv_x = method.generate_np(image, **param)
+#             if np.argmax(forward_model.predictions(image)) == label:
+#                 not_success = True
+#             else:
+#                 not_success = False
+#             return adv_x, not_success
+#         return _func
+#     return _wrapper
+
+#@cleverhans_wrapper(MadryEtAl, {"nb_iter": 10, "eps": 4.0, "eps_iter": 1.0})
+#def pgd_attack(model, image, label, verbose=False):
+#    pass
+avail_attacks = ["gaussian", "saltnpepper", "boundary", "transfer", "iterative_transfer", "iterative_transfer_fix", "local_search", "lbfgs", "pgd", "pgd_bigiter"]#"ch_pgd"]
 bms = {n: globals()[n + "_attack"] for n in avail_attacks}
 
 def main(reader, types, save, verbose=False):
-    # instantiate blackbox and substitute model
-    test_user = pwd.getpwuid(os.getuid()).pw_name
-    container_name = 'avc_test_model_submission_{}'.format(test_user)
-    form = '{{ .NetworkSettings.IPAddress }}'
-    cmd = "docker inspect --format='{}' {}".format(form, container_name)
-    p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
-    p.wait()
-    ip = p.stdout.read()[:-1].decode('UTF-8')
+    # # instantiate blackbox and substitute model
+    # test_user = pwd.getpwuid(os.getuid()).pw_name
+    # container_name = 'avc_test_model_submission_{}'.format(test_user)
+    # form = '{{ .NetworkSettings.IPAddress }}'
+    # cmd = "docker inspect --format='{}' {}".format(form, container_name)
+    # p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+    # p.wait()
+    # ip = p.stdout.read()[:-1].decode('UTF-8')
     
-    p = subprocess.Popen("docker port " + container_name + " | cut -d/ -f1", shell=True, stdout=subprocess.PIPE)
-    port = p.stdout.read()[:-1].decode('UTF-8')
+    # p = subprocess.Popen("docker port " + container_name + " | cut -d/ -f1", shell=True, stdout=subprocess.PIPE)
+    # port = p.stdout.read()[:-1].decode('UTF-8')
 
-    p = subprocess.Popen("docker exec " + container_name + " bash -c 'echo $EVALUATOR_SECRET'", shell=True, stdout=subprocess.PIPE)
-    env_sec = p.stdout.read()[:-1].decode('UTF-8')
+    # p = subprocess.Popen("docker exec " + container_name + " bash -c 'echo $EVALUATOR_SECRET'", shell=True, stdout=subprocess.PIPE)
+    # env_sec = p.stdout.read()[:-1].decode('UTF-8')
 
-    os.environ["MODEL_SERVER"] = ip
-    os.environ["MODEL_PORT"] = port
-    os.environ["EVALUATOR_SECRET"] = env_sec
+    # os.environ["MODEL_SERVER"] = ip
+    # os.environ["MODEL_PORT"] = port
+    # os.environ["EVALUATOR_SECRET"] = env_sec
 
-    print('model url: ', "http://{ip}:{port}".format(ip=ip, port=port))
+    # print('model url: ', "http://{ip}:{port}".format(ip=ip, port=port))
 
-    forward_model = load_model()
+    # forward_model = load_model()
 
-    if any([n.endswith("transfer") for n in types]):
-        backward_model = create_fmodel()
+    # if any([n.endswith("transfer") for n in types]):
+    # backward_model = create_fmodel()
 
-        # instantiate differntiable composite model
-        # (predictions from blackbox, gradients from substitute)
-        transfer_model = foolbox.models.CompositeModel(
-            forward_model=forward_model,
-            backward_model=backward_model)
+    # instantiate differntiable composite model
+    # (predictions from blackbox, gradients from substitute)
+    # transfer_model = foolbox.models.CompositeModel(
+    #forward_model=forward_model,
+    #backward_model=backward_model)
+    forward_model = create_fmodel()
+    transfer_model = forward_model
 
     def distance(X, Y):
         X = X.astype(np.float64) / 255
@@ -148,9 +199,10 @@ def main(reader, types, save, verbose=False):
     clean_predicts = []
     accuracy_counter = 0
     num_test = 0
+    not_adv = {tp: 0 for tp in types}
     for ind, (file_name, image, label) in enumerate(reader.read_images()):
         num_test += 1
-        predict_label = forward_model(image)
+        predict_label = np.argmax(forward_model.predictions(image))
         clean_predicts.append((file_name, predict_label, label))
         print("image {}: {} {}".format(file_name, predict_label, label))
         if predict_label != label:
@@ -160,6 +212,7 @@ def main(reader, types, save, verbose=False):
                 adversarial = bms[tp](forward_model, image, label, verbose=verbose)
             else:
                 adversarial = bms[tp](transfer_model, image, label, verbose=verbose)
+
             if adversarial is None:
                 pixel_dis = float(worst_case_distance(image))
             else:
@@ -170,11 +223,17 @@ def main(reader, types, save, verbose=False):
             #     pixel_dis = np.mean(np.abs(adversarial - image))
             distances[it].append(pixel_dis)
             print("image {}: {} attack / distance: {}".format(ind+1, tp, pixel_dis))
-            if args.save and adversarial is not None:
+            if args.save:
+                # if adversarial is None or not_success:
+                if adversarial is None:
+                    # adversarial = adversarial or image
+                    adversarial = image
+                    not_adv[tp] += 1
                 # store_adversarial(os.path.join(tp, file_name + "_" + str(pixel_dis)), adversarial)
                 store_adversarial(os.path.join(tp, os.path.basename(file_name)), adversarial)
 
     print("test accuracy: {:.2f}%".format(100. - accuracy_counter * 100. / num_test))
+    print("not find adv samples: \n\t{}".format("\n\t".join(["{}: {}; {}%".format(tp, num, float(num)/num_test * 100) for tp, num in not_adv.items()])))
     open("file_predict_label.txt", "w").write("\n".join(["{} {} {}".format(*x) for x in clean_predicts]))
     for tp, dis in zip(types, distances):
         distance_array = np.array(dis)
