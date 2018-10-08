@@ -29,10 +29,11 @@ class EnsembleModel(DifferentiableModel):
         predictions, gradients = zip(*[m.predictions_and_gradient(image, label) for m in self.models])
         predictions = np.array(predictions); gradients = np.array(gradients)
         assert predictions.ndim == 2
-        assert gradient.shape[1:] == image.shape
-        predictions = np.sum(self.weight[:, np.newaxis] * predictions, axis=0)
-        gradients = np.sum(self.weight[:, np.newaxis, np.newaxis] * gradients, axis=0)
-        return predictions, gradient
+        assert gradients.shape[1:] == image.shape
+        predictions = np.sum(self.weights[:, np.newaxis] * predictions, axis=0)
+        gradients = np.sum(self.weights[:, np.newaxis, np.newaxis, np.newaxis] * gradients, axis=0)
+
+        return predictions, gradients
 
 def create_fmodel():
     here = os.path.dirname(os.path.abspath(__file__))

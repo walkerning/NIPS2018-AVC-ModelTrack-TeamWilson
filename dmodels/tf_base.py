@@ -18,7 +18,8 @@ class BaseTFModel(BaseModel):
     
     @classmethod
     def create_model(cls, cfg):
-        graph = tf.Graph()
+        # graph = tf.Graph()
+        graph = tf.get_default_graph()
         with graph.as_default():
             images = tf.placeholder(tf.float32, (None, 64, 64, 3))
             model = cls(**cfg["cfg"])
@@ -28,11 +29,24 @@ class BaseTFModel(BaseModel):
         model._images = images
         return model
 
+    def model_vars(self):
+        if not hasattr(self, "_model_vars"):
+            if self.name_space:
+                self._model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name_space)
+            else:
+                self._model_vars = self._vars_after_model
+        return self._model_vars
+
     def load_checkpoint(self, path):
         with self.graph.as_default():
             with tf.variable_scope("utilities"):
-                self.saver = tf.train.Saver()
-        sess = tf.Session(graph=self.graph)
+                # self.saver = tf.train.Saver()
+                self.saver = tf.train.Saver(self.model_vars())
+        # sess = tf.Session(graph=self.graph)
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        sess = tf.get_default_session() or tf.Session(graph=self.graph, config=config)
+        print("load checkpoint from path: ", path)
         self.saver.restore(sess, path)
         return sess
 
@@ -47,6 +61,9 @@ class TFSlimModel(BaseTFModel):
 
     #     # sess = tf.train.MonitoredSession(session_creator=session_creator)
     #     return sess
+
+    def model_vars(self):
+        return slim.get_model_variables()
 
     def load_checkpoint(self, path):
         with self.graph.as_default():

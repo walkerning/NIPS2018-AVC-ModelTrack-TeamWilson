@@ -34,6 +34,7 @@ from __future__ import print_function
 import tensorflow as tf
 
 from ..tf_base import BaseTFModel
+from ..utils import tf_vars_before_after
 
 _BATCH_NORM_DECAY = 0.997
 _BATCH_NORM_EPSILON = 1e-5
@@ -352,7 +353,7 @@ class ResNet(BaseTFModel):
                kernel_size,
                conv_stride, first_pool_size, first_pool_stride,
                second_pool_size, second_pool_stride, block_sizes, block_strides,
-               final_size, version=DEFAULT_VERSION, data_format=None, name=None):
+               final_size, version=DEFAULT_VERSION, data_format=None, name=None, name_space=""):
     """Creates a model for classifying an image.
 
     Args:
@@ -384,6 +385,7 @@ class ResNet(BaseTFModel):
     Raises:
       ValueError: if invalid version is selected.
     """
+    super(ResNet, self).__init__()
     self.name = name or "resnet"
     self.resnet_size = resnet_size
 
@@ -421,6 +423,9 @@ class ResNet(BaseTFModel):
     self.block_strides = block_strides
     self.final_size = final_size
 
+    self.name_space = name_space
+
+  @tf_vars_before_after
   def __call__(self, inputs, training):
     """Add operations to classify a batch of input images.
 
@@ -432,7 +437,7 @@ class ResNet(BaseTFModel):
     Returns:
       A logits Tensor with shape [<batch_size>, self.num_classes].
     """
-    with tf.variable_scope(""):
+    with tf.variable_scope(self.name_space):
       _R_MEAN = 123.68
       _G_MEAN = 116.78
       _B_MEAN = 103.94
@@ -482,7 +487,6 @@ class ResNet(BaseTFModel):
           name='readout_layer')
       inputs = readout_layer(inputs)
       inputs = tf.identity(inputs, 'final_dense')
-
       return inputs
 
 Model = ResNet
