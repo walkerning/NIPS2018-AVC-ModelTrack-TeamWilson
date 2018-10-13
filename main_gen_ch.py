@@ -69,7 +69,8 @@ def pgd_attack(model, image, label, verbose=False):
 
 def pgd_bigiter_attack(model, image, label, verbose=False):
     criterion = foolbox.criteria.Misclassification()
-    attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
+    # attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
+    attack = foolbox.attacks.PGD(model, criterion)
     # return attack(image, label, binary_search=False, epsilon=0.3, stepsize=0.005, iterations=10)
     return attack(image, label, binary_search=False, epsilon=0.3, stepsize=0.04, iterations=10)
 

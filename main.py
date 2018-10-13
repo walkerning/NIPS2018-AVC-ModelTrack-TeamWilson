@@ -148,6 +148,7 @@ def main(reader, types, save, verbose=False):
     clean_predicts = []
     accuracy_counter = 0
     num_test = 0
+    not_adv = {tp: 0 for tp in types}
     for ind, (file_name, image, label) in enumerate(reader.read_images()):
         num_test += 1
         predict_label = forward_model(image)
@@ -170,11 +171,21 @@ def main(reader, types, save, verbose=False):
             #     pixel_dis = np.mean(np.abs(adversarial - image))
             distances[it].append(pixel_dis)
             print("image {}: {} attack / distance: {}".format(ind+1, tp, pixel_dis))
-            if args.save and adversarial is not None:
+            # if args.save and adversarial is not None:
+            #     # store_adversarial(os.path.join(tp, file_name + "_" + str(pixel_dis)), adversarial)
+            #     store_adversarial(os.path.join(tp, os.path.basename(file_name)), adversarial)
+        
+            if args.save:
+                # if adversarial is None or not_success:
+                if adversarial is None:
+                    # adversarial = adversarial or image
+                    adversarial = image
+                    not_adv[tp] += 1
                 # store_adversarial(os.path.join(tp, file_name + "_" + str(pixel_dis)), adversarial)
                 store_adversarial(os.path.join(tp, os.path.basename(file_name)), adversarial)
 
     print("test accuracy: {:.2f}%".format(100. - accuracy_counter * 100. / num_test))
+    print("not find adv samples: \n\t{}".format("\n\t".join(["{}: {}; {}%".format(tp, num, float(num)/num_test * 100) for tp, num in not_adv.items()])))
     open("file_predict_label.txt", "w").write("\n".join(["{} {} {}".format(*x) for x in clean_predicts]))
     for tp, dis in zip(types, distances):
         distance_array = np.array(dis)
