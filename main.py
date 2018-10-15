@@ -6,6 +6,7 @@ import logging
 import argparse
 import subprocess
 import pickle
+import contextlib
 
 import numpy as np
 from scipy.misc import imread
@@ -17,6 +18,19 @@ from adversarial_vision_challenge import read_images
 from adversarial_vision_challenge import store_adversarial
 from adversarial_vision_challenge import attack_complete
 
+@contextlib.contextmanager
+def substitute_argscope(_callable, dct):
+    if isinstance(_callable, type): # class
+        _callable.old_init = _callable.__init__
+        def new_init(self, *args, **kwargs):
+            kwargs.update(dct)
+            return self.old_init(*args, **kwargs)
+        _callable.__init__ = new_init
+        yield
+        _callable.__init__ = _callable.old_init
+    else: # function/methods
+        raise Exception("not implemented")
+                
 class ImageReader(object):
     available_methods = ["npy", "img"]
     def __init__(self, tp):
@@ -45,11 +59,46 @@ class ImageReader(object):
                     logging.warning("shape of image read from file {} is not (64, 64, 3). ignore.".format(key))
                     continue
                 yield (key, im, data[key])
-    
+
+def pgd_03_001_40_re_transfer_attack(model, image, label, verbose=False):
+    criterion = foolbox.criteria.Misclassification()
+    attack = foolbox.attacks.PGD(model, criterion)
+    return attack(image, label, binary_search=False, epsilon=0.3, stepsize=0.01, iterations=40, return_early=True)
+
+def pgd_03_001_40_bs_transfer_attack(model, image, label, verbose=False):
+    criterion = foolbox.criteria.Misclassification()
+    attack = foolbox.attacks.PGD(model, criterion)
+    return attack(image, label, binary_search=False, epsilon=0.3, stepsize=0.01, iterations=40, return_early=True)
+
+def pgd_transfer_attack(model, image, label, verbose=False):
+    criterion = foolbox.criteria.Misclassification()
+    attack = foolbox.attacks.PGD(model, criterion)
+    return attack(image, label, binary_search=False, epsilon=0.2, stepsize=0.01, iterations=10, return_early=False)
+
+def pgd_005_transfer_attack(model, image, label, verbose=False):
+    criterion = foolbox.criteria.Misclassification()
+    attack = foolbox.attacks.PGD(model, criterion)
+    return attack(image, label, binary_search=False, epsilon=0.05, stepsize=0.01, iterations=10, return_early=False)
+
 def iterative_transfer_attack(model, image, label, verbose=False):
     criterion = foolbox.criteria.Misclassification()
     attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
     return attack(image, label)
+
+def l2i_01_002_10_bs_transfer_attack(model, image, label, verbose=False):
+    criterion = foolbox.criteria.Misclassification()
+    attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
+    return attack(image, label, epsilon=0.1, stepsize=0.02, iterations=10, binary_search=True)
+
+def l2i_03_005_10_nobs_transfer_attack(model, image, label, verbose=False):
+    criterion = foolbox.criteria.Misclassification()
+    attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
+    return attack(image, label, epsilon=0.3, stepsize=0.05, iterations=10, binary_search=False)
+
+def l2i_01_002_10_nobs_transfer_attack(model, image, label, verbose=False):
+    criterion = foolbox.criteria.Misclassification()
+    attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
+    return attack(image, label, epsilon=0.1, stepsize=0.02, iterations=10, binary_search=False)
 
 def transfer_attack(model, image, label, verbose=False):
     criterion = foolbox.criteria.Misclassification()
@@ -100,7 +149,7 @@ def boundary_attack(model, image, label, verbose=False):
         return attack(image, label, iterations=45, max_directions=10,
                       tune_batch_size=False, starting_point=init_adversarial, verbose=verbose)
 
-avail_attacks = ["gaussian", "saltnpepper", "boundary", "transfer", "iterative_transfer"]
+avail_attacks = ["gaussian", "saltnpepper", "boundary", "transfer", "iterative_transfer", "pgd_transfer", "pgd_005_transfer", "pgd_03_001_40_re_transfer", "pgd_03_001_40_bs_transfer", "l2i_01_002_10_bs_transfer", "l2i_01_002_10_nobs_transfer", "l2i_03_005_10_nobs_transfer"]
 bms = {n: globals()[n + "_attack"] for n in avail_attacks}
 
 def main(reader, types, save, verbose=False):
@@ -157,10 +206,11 @@ def main(reader, types, save, verbose=False):
         if predict_label != label:
             accuracy_counter += 1
         for it, tp in enumerate(types):
-            if not tp.endswith("transfer"):
-                adversarial = bms[tp](forward_model, image, label, verbose=verbose)
-            else:
-                adversarial = bms[tp](transfer_model, image, label, verbose=verbose)
+            with substitute_argscope(foolbox.Adversarial, {"distance": foolbox.distances.Linf if "pgd" in tp else foolbox.distances.MSE}):
+                if not tp.endswith("transfer"):
+                    adversarial = bms[tp](forward_model, image, label, verbose=verbose)
+                else:
+                    adversarial = bms[tp](transfer_model, image, label, verbose=verbose)
             if adversarial is None:
                 pixel_dis = float(worst_case_distance(image))
             else:
@@ -182,7 +232,11 @@ def main(reader, types, save, verbose=False):
                     adversarial = image
                     not_adv[tp] += 1
                 # store_adversarial(os.path.join(tp, file_name + "_" + str(pixel_dis)), adversarial)
-                store_adversarial(os.path.join(tp, os.path.basename(file_name)), adversarial)
+                if args.use_tofile:
+                    adversarial.tofile(os.path.join(os.environ["OUTPUT_ADVERSARIAL_PATH"], tp, os.path.basename(file_name)))
+                else:
+                    store_adversarial(os.path.join(tp, os.path.basename(file_name)), adversarial)
+                
 
     print("test accuracy: {:.2f}%".format(100. - accuracy_counter * 100. / num_test))
     print("not find adv samples: \n\t{}".format("\n\t".join(["{}: {}; {}%".format(tp, num, float(num)/num_test * 100) for tp, num in not_adv.items()])))
@@ -206,6 +260,7 @@ if __name__ == '__main__':
     parser.add_argument("-v", "--verbose", default=False, action="store_true", help="print verbose info")
     parser.add_argument("-t", "--type", action="append", choices=avail_attacks, default=[], help="what attack to be performed") # , required=True)
     parser.add_argument("--image-type", choices=ImageReader.available_methods, default="npy", help="image type")
+    parser.add_argument("--use-tofile", action="store_true", default=False, help="use arr.tofile instead of np.save")
 
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu

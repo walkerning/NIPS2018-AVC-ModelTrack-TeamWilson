@@ -72,7 +72,12 @@ def pgd_bigiter_attack(model, image, label, verbose=False):
     # attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
     attack = foolbox.attacks.PGD(model, criterion)
     # return attack(image, label, binary_search=False, epsilon=0.3, stepsize=0.005, iterations=10)
-    return attack(image, label, binary_search=False, epsilon=0.3, stepsize=0.04, iterations=10)
+    return attack(image, label, binary_search=False, epsilon=0.3, stepsize=0.04, iterations=10, return_early=False)
+
+def pgd_02_002_nre_attack(model, image, label, verbose=False):
+    criterion = foolbox.criteria.Misclassification()
+    attack = foolbox.attacks.PGD(model, criterion)
+    return attack(image, label, binary_search=False, epsilon=0.2, stepsize=0.02, iterations=20, return_early=False)
 
 def iterative_transfer_fix_attack(model, image, label, verbose=False):
     criterion = foolbox.criteria.Misclassification()
@@ -150,7 +155,7 @@ def boundary_attack(model, image, label, verbose=False):
 #@cleverhans_wrapper(MadryEtAl, {"nb_iter": 10, "eps": 4.0, "eps_iter": 1.0})
 #def pgd_attack(model, image, label, verbose=False):
 #    pass
-avail_attacks = ["gaussian", "saltnpepper", "boundary", "transfer", "iterative_transfer", "iterative_transfer_fix", "local_search", "lbfgs", "pgd", "pgd_bigiter"]#"ch_pgd"]
+avail_attacks = ["gaussian", "saltnpepper", "boundary", "transfer", "iterative_transfer", "iterative_transfer_fix", "local_search", "lbfgs", "pgd", "pgd_bigiter", "pgd_02_002_nre"]#"ch_pgd"]
 bms = {n: globals()[n + "_attack"] for n in avail_attacks}
 
 def main(reader, types, save, verbose=False):
