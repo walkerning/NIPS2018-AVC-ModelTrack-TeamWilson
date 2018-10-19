@@ -257,7 +257,7 @@ class DistillTrainer(Trainer):
         threads = tf.train.start_queue_runners(sess=sess, coord=coord)    
 
         if self.FLAGS.test_only:
-            # FIXME: all load should be moved into methods of model 
+            # FIXME: all checkpoint loading staffs should be moved into methods of model 
             if self.FLAGS.load_file_tea and not self.FLAGS.load_file_stu:
                 self.saver_res.restore(sess, self.FLAGS.load_file_tea)
                 # if self.FLAGS.model.more_blocks:

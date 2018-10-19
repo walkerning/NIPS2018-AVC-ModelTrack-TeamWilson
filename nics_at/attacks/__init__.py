@@ -66,7 +66,7 @@ class AttackGenerator(object):
             if a["id"] is None:
                 adv_x = x
                 generated.append(adv_x)
-                keys.append(None)
+                keys.append(a.get("gid", "normal"))
                 continue
             key = a.get("gid", a["id"] + "-".join(["{}_{}".format(k, v) for k, v in sorted(a.get("attack_params", {}).items(), key=lambda pair: pair[0])]))
             keys.append(key)

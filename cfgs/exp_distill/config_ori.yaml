@@ -38,9 +38,6 @@ train_models: # iter train
     - id: stu_whitebox
       gid: stu_whitebox
       conds: ["epoch_mod(2, 1)"]
-      # - id: _generated
-      #   gid: _generated
-      #   conds: ["epoch_mod(2, 1)"]
     - id:
       gid: normal
       conds: ["epoch_mod(2, 0)"]
@@ -49,15 +46,6 @@ test_models:
   stu_:
     - gid: stu_whitebox
       id: stu_whitebox
-    # - id: stu_whitebox
-    #   attack_params:
-    #     eps: 8.0
-    #     eps_iter: 2.0
-
-# generated_adv: # pre-stored adv examples
-#   - id: inception_on_submit3_l2_03_005_10
-#     suffix: bin
-#     path:
 
 available_attacks:
   - id: stu_whitebox
@@ -67,3 +55,4 @@ available_attacks:
       eps: 4.0
       eps_iter: 1.0
       nb_iter: 10
+      attack_with_y: false
