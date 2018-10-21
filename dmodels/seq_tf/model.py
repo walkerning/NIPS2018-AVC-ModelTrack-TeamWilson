@@ -16,9 +16,10 @@ class SeqTFModel(BaseTFModel):
             model = mod.Model(**cfg["cfg"])
             self.models.append(model)
     
-    def load_checkpoint(self, paths):
+    def load_checkpoint(self, paths, load_name_spaces):
         paths = paths or [cfg["checkpoint"] for cfg in self.cfg_list]
-        savers = [tf.train.Saver(model.model_vars()) for model in self.models]
+        load_name_spaces = load_name_spaces or [cfg.get("load_name_space", None) for cfg in self.cfg_list]
+        savers = [tf.train.Saver(model.saver_mapping(lns)) for model, lns in zip(self.models, load_name_spaces)]
         sess = tf.Session()
         for saver, path in zip(savers, paths):
             saver.restore(sess, path)
