@@ -229,11 +229,11 @@ def main(reader, types, save, verbose=False):
                 # if adversarial is None or not_success:
                 if adversarial is None:
                     # adversarial = adversarial or image
-                    adversarial = image
+                    adversarial = image.astype(np.uint8)
                     not_adv[tp] += 1
                 # store_adversarial(os.path.join(tp, file_name + "_" + str(pixel_dis)), adversarial)
                 if args.use_tofile:
-                    adversarial.tofile(os.path.join(os.environ["OUTPUT_ADVERSARIAL_PATH"], tp, os.path.basename(file_name)))
+                    adversarial.tofile(os.path.join(os.environ["OUTPUT_ADVERSARIAL_PATH"], tp, os.path.basename(file_name).split(".")[0] + ".bin"))
                 else:
                     store_adversarial(os.path.join(tp, os.path.basename(file_name)), adversarial)
                 
