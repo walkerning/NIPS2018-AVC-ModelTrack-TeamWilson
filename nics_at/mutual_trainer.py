@@ -23,6 +23,7 @@ class MutualTrainer(Trainer):
             "aug_mode": "pre",
 
             # Training
+            "distill_use_auged": False,
             "num_threads": 2,
             "epochs": 50,
             "batch_size": 100,
@@ -232,7 +233,7 @@ class MutualTrainer(Trainer):
                 x_v, auged_x_v, y_v, adv_x_v = sess.run([self.imgs_t, self.auged_imgs_t, self.labels_t, self.adv_imgs_t])
                 # forward using normal
                 normal_prob_lst_v = sess.run(self.prob_lst, feed_dict={
-                    self.input_holder_lst: [x_v] * self.mutual_num,
+                    self.input_holder_lst: [x_v if not self.FLAGS.distill_use_auged else auged_x_v] * self.mutual_num,
                     self.training_lst: [True] * self.mutual_num
                 })
                 info_lst_v = []

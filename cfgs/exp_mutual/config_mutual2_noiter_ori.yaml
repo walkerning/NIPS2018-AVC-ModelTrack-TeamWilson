@@ -17,14 +17,12 @@ test_frequency: 1
 test_models:
   model_0:
     - id: model_0_whitebox
-#    - id: model_0_whitebox_l2
   model_1:
     - id: model_1_whitebox
-#    - id: model_1_whitebox_l2
 test_frequency: 1
 
 ## Training Configuration
-epochs: 30
+epochs: 40
 batch_size: 50
 # Learning rate
 adjust_lr_acc:
@@ -34,6 +32,7 @@ adjust_lr_acc:
   # decay_every: 25
   boundaries: [1, 16, 32]
 
+distill_use_auged: true
 update_per_batch: 1
 train_models:
   model_0:

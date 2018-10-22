@@ -28,6 +28,7 @@ class DistillTrainer(Trainer):
             "num_threads": 2,
 
             # Training
+            "distill_use_auged": False, # 一个谜一样的bug
             "epochs": 50,
             "batch_size": 100,
             "adjust_lr_acc": None,
@@ -161,7 +162,7 @@ class DistillTrainer(Trainer):
                 run_start_time = time.time()
                 for adv_x in adv_xs:
                     feed_dict = {
-                        self.x: x_v,
+                        self.x: x_v if not self.FLAGS.distill_use_auged else auged_x_v,
                         self.stu_x: adv_x,
                         self.training_stu: True,
                         self.labels: y_v,

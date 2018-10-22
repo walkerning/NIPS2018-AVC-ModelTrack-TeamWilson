@@ -45,7 +45,12 @@ if not args.test_only:
                               shell=True)
     args.log_file = os.path.join(args.train_dir, "train.log")
     args.log_file = open(args.log_file, "w")
-    shutil.copyfile(sys.argv[0], os.path.join(args.train_dir, "train.py"))
+    # shutil.copyfile(sys.argv[0], os.path.join(args.train_dir, "train.py"))
+    def _onlycopy_py(src, names):
+        return [name for name in names if not name.endswith(".py")]
+    if os.path.exists(os.path.join(args.train_dir, "nics_at")):
+        shutil.rmtree(os.path.join(args.train_dir, "nics_at"))
+    shutil.copytree("nics_at",  os.path.join(args.train_dir, "nics_at"))
     shutil.copyfile(args.config, os.path.join(args.train_dir, "config.yaml"))
 else:
     args.log_file = None
