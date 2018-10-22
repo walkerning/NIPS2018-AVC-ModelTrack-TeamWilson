@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-
+import os
 import tensorflow as tf
 slim = tf.contrib.slim
 
@@ -58,6 +58,8 @@ class BaseTFModel(BaseModel):
         config.gpu_options.allow_growth = True
         sess = tf.get_default_session() or tf.Session(graph=self.graph, config=config)
         print("load checkpoint from path: ", path)
+        if os.path.isdir(path):
+            path = tf.train.latest_checkpoint(path)
         self.saver.restore(sess, path)
         return sess
 

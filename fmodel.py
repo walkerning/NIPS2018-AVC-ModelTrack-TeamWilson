@@ -37,8 +37,9 @@ class EnsembleModel(DifferentiableModel):
 
 def create_fmodel():
     here = os.path.dirname(os.path.abspath(__file__))
-    model_cfg_file = os.path.join(here, "model.yaml")
-    with open(model_cfg_file, "r") as f:
+    cfg_fname = os.environ.get("FMODEL_MODEL_CFG", "model.yaml")
+    print("Load fmodel cfg from {}".format(cfg_fname))
+    with open(cfg_fname, "r") as f:
         model_cfg = yaml.load(f)
     models = []
     for m in model_cfg["models"]:

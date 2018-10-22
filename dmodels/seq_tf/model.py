@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-
+import os
 import importlib
 
 import tensorflow as tf
@@ -22,6 +22,8 @@ class SeqTFModel(BaseTFModel):
         savers = [tf.train.Saver(model.saver_mapping(lns)) for model, lns in zip(self.models, load_name_spaces)]
         sess = tf.Session()
         for saver, path in zip(savers, paths):
+            if os.path.isdir(path):
+                path = tf.train.latest_checkpoint(path)
             saver.restore(sess, path)
         return sess
 
