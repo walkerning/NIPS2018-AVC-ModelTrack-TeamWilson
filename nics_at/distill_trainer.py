@@ -69,7 +69,7 @@ class DistillTrainer(Trainer):
         self.labels = tf.placeholder(tf.float32, [None, 200], name="labels")
 
         model_tea = QCNN.create_model(self.FLAGS["teacher"])
-        self.logits = model_tea.get_logits(self.x)
+        self.logits = model_tea.get_logits(self.x) # FIXME: here should also support input of multiple batch size, as there will be multi pre-generated adv data in the future. (used in test)
         restore_vars = tf.global_variables()
         tea_t_vars = tf.trainable_variables()
         model_stu = QCNN.create_model(self.FLAGS["model"])
@@ -112,11 +112,11 @@ class DistillTrainer(Trainer):
             self.loss += at_loss * self.FLAGS.beta
         else:
             self.at_loss = tf.constant(0.0)
-        self.index_label = tf.argmax(self.labels, 1)
-        self.reshape_index_label = tf.argmax(reshape_labels, 1)
-        correct = tf.equal(tf.argmax(self.logits_stu, 1), self.reshape_index_label)
+        self.index_label = tf.argmax(self.labels, -1)
+        self.reshape_index_label = tf.argmax(reshape_labels, -1)
+        correct = tf.equal(tf.argmax(self.logits_stu, -1), self.reshape_index_label)
         self.accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
-        tea_correct = tf.equal(tf.argmax(self.logits, 1), self.index_label)
+        tea_correct = tf.equal(tf.argmax(self.logits, -1), self.index_label)
         self.tea_accuracy = tf.reduce_mean(tf.cast(tea_correct, tf.float32))
 
         # Initialize the optimizer
@@ -246,7 +246,7 @@ class DistillTrainer(Trainer):
         print("\r", end="")
         utils.log("\tTest {}: \n\t\tloss: {}; accuracy: {:.2f} %; teacher accuracy: {:.2f} %; Mean pixel distance: {:.2f}".format(name, loss_v_epoch, acc_v_epoch * 100, tea_acc_v_epoch * 100, image_disturb))
         if adv:
-            utils.log("\tAdv:\n\t\t{}".format("\n\t\t".join(["test {}: acc: {:.2f}; ce_loss: {:.2f}; dist: {:.2f}".format(test_id, *(attack_res/steps_per_epoch)) for test_id, attack_res in test_res.items()])), flush=True)
+            utils.log("\tAdv:\n\t\t{}".format("\n\t\t".join(["test {}: acc: {:.2f}; tea_acc: {:.2f}; ce_loss: {:.2f}; dist: {:.2f}".format(test_id, *(attack_res/steps_per_epoch)) for test_id, attack_res in test_res.items()])), flush=True)
 
     def start(self):
         sess = self.sess

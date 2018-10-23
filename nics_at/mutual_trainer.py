@@ -63,7 +63,6 @@ class MutualTrainer(Trainer):
         (self.imgs_t, self.auged_imgs_t, self.labels_t, self.adv_imgs_t), (self.imgs_v, self.auged_imgs_v, self.labels_v, self.adv_imgs_v) = self.dataset.data_tensors
 
         self.labels = tf.placeholder(tf.float32, [None, 200], name="labels")
-        # self.index_label = tf.argmax(self.labels, 1)
         model_lst = [QCNN.create_model(m_cfg) for m_cfg in self.FLAGS["models"]]
         input_holder_lst = []
         saver_lst = []

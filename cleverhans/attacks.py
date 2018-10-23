@@ -562,9 +562,12 @@ class MomentumIterativeMethod(Attack):
                                              red_ind, keepdims=True))
                 normalized_grad = momentum / norm
             elif self.ord == 2:
-                square = reduce_sum(tf.square(momentum),
+                square = reduce_mean(tf.square(momentum),
                                     red_ind,
                                     keepdims=True)
+                # square = reduce_sum(tf.square(momentum),
+                #                     red_ind,
+                #                     keepdims=True)
                 norm = tf.sqrt(tf.maximum(avoid_zero_div, square))
                 normalized_grad = momentum / norm
             else:
