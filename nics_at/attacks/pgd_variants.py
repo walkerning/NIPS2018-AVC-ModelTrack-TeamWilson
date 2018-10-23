@@ -1,6 +1,7 @@
 import cleverhans
 
 class MadryEtAl_L2(cleverhans.attacks.MadryEtAl):
+    # ord only decide use linf or l2 to clip
     def attack_single_step(self, x, eta, y):
         """
         Given the original image and the perturbation computed so far, computes
@@ -26,7 +27,7 @@ class MadryEtAl_L2(cleverhans.attacks.MadryEtAl):
         if self.clip_min is not None and self.clip_max is not None:
             adv_x = tf.clip_by_value(adv_x, self.clip_min, self.clip_max)
         eta = adv_x - x
-        eta = clip_eta(eta, self.ord, self.eps)
+        eta = clip_eta(eta, self.ord, self.eps) # by default: use linf to clip
         return eta
 
 class MadryEtAl_transfer(cleverhans.attacks.MadryEtAl):

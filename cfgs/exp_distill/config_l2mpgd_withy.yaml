@@ -53,7 +53,7 @@ available_attacks:
     method: momentum_pgd
     model: stu_
     attack_params:
-      eps: 4.0
+      eps: 400
       eps_iter: 1.0
       nb_iter: 10
       ord: 2
