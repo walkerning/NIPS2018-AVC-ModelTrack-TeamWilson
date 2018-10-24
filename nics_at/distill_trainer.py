@@ -92,31 +92,21 @@ class DistillTrainer(Trainer):
         self.training_stu = model_stu.get_training_status()
         
         # Loss and metrics
-        reshape_logits = tf.reshape(self.logits, [batch_size, -1, 200])
-        soft_label = tf.nn.softmax(reshape_logits/self.FLAGS.temperature)
-        reshape_labels = tf.expand_dims(self.labels, 1)
-        reshape_logits_stu = tf.reshape(self.logits_stu, [batch_size, -1, 200])
-        # soft_logits = self.logits_stu/self.FLAGS.temperature
-        soft_logits = reshape_logits_stu / self.FLAGS.temperature
-        # tile_num = tf.shape(soft_logits)[0]/batch_size
-        # tile_num_tea = tf.shape(self.logits)[0]/batch_size
-        # reshape_soft_label = tf.reshape(tf.tile(tf.expand_dims(soft_label, 1), [1, tf.shape(soft_logits)[0]/tf.shape(soft_label)[0], 1]), [-1, 200])
-        # reshape_soft_label = tf.reshape(tf.tile(tf.expand_dims(soft_label, 1), [1, tf.shape(soft_logits)[0]/tf.shape(soft_label)[0], 1]), [-1, 200])
-        # reshape_labels = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tile_num, 1]), [-1, 200])
-        # reshape_labels_tea = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tile_num_tea, 1]), [-1, 200])
-        # ce = tf.nn.softmax_cross_entropy_with_logits(
-        #     labels=reshape_soft_label,
-        #     logits=soft_logits,
-        #     name="distill_ce_loss")
+        tile_num = tf.shape(self.logits_stu)[0]/batch_size
+        tile_num_tea = tf.shape(self.logits)[0]/batch_size
+
+        soft_label = tf.nn.softmax(self.logits/self.FLAGS.temperature)
+        soft_logits = self.logits_stu / self.FLAGS.temperature
+        reshape_soft_label = tf.reshape(tf.tile(tf.expand_dims(soft_label, 1), [1, tf.shape(soft_logits)[0]/tf.shape(soft_label)[0], 1]), [-1, 200])
         ce = tf.nn.softmax_cross_entropy_with_logits(
-            labels=soft_label,
+            labels=reshape_soft_label,
             logits=soft_logits,
             name="distill_ce_loss")
         self.distillation = tf.reduce_mean(ce)
-        # self.original_loss = tf.reduce_mean(
-        #     tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=self.logits_stu))
+
+        reshape_labels = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tile_num, 1]), [-1, 200])
         self.original_loss = tf.reduce_mean(
-            tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=reshape_logits_stu))
+            tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=self.logits_stu))
 
         self.loss = self.original_loss * self.FLAGS.theta
         if self.FLAGS.alpha != 0:
@@ -126,15 +116,14 @@ class DistillTrainer(Trainer):
             self.loss += at_loss * self.FLAGS.beta
         else:
             self.at_loss = tf.constant(0.0)
-        # self.index_label = tf.argmax(self.labels, -1)
-        reshape_index_label = tf.argmax(reshape_labels, -1)
-        # self.reshape_index_label = tf.argmax(reshape_labels, -1)
-        # reshape_index_label_tea = tf.argmax(reshape_labels_tea, -1)
-        # correct = tf.equal(tf.argmax(self.logits_stu, -1), self.reshape_index_label)
-        correct = tf.equal(tf.argmax(reshape_logits_stu, -1), reshape_index_label)
+
+        self.index_label = tf.argmax(self.labels, -1)
+        _tmp = tf.expand_dims(self.index_label, -1)
+        reshape_index_label = tf.reshape(tf.tile(_tmp, [1, tile_num]), [-1])
+        reshape_index_label_tea = tf.reshape(tf.tile(_tmp, [1, tile_num_tea]), [-1])
+        correct = tf.equal(tf.argmax(self.logits_stu, -1), reshape_index_label)
         self.accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
-        # tea_correct = tf.equal(tf.argmax(self.logits, -1), reshape_index_label_tea)
-        tea_correct = tf.equal(tf.argmax(reshape_logits, -1), reshape_index_label)
+        tea_correct = tf.equal(tf.argmax(self.logits, -1), reshape_index_label_tea)
         self.tea_accuracy = tf.reduce_mean(tf.cast(tea_correct, tf.float32))
 
         # Initialize the optimizer
