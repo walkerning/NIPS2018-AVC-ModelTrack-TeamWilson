@@ -32,7 +32,8 @@ for fname in fnames:
     print("handling {}".format(label))
     content = open(fname, "r").read().strip().split("Epoch", 1)[1]
     # normal_accs = re.findall("Test normal_adv:[\n\t ]+?loss: [.0-9e]+; accuracy: ([.0-9e]+) %; Mean pixel distance:", content)
-    normal_accs = re.findall("loss: [.0-9e]+; accuracy: ([.0-9e]+) %; Mean pixel distance:", content)
+    # normal_accs = re.findall("loss: [.0-9e]+; accuracy: ([.0-9e]+) %; Mean pixel distance:", content)
+    normal_accs = re.findall("loss: [.0-9e]+; accuracy: ([.0-9e]+) %; ", content)
     adv_accs = re.findall("test (.+): acc: ([.0-9e]+);", content)
     adv_acc_dct = {}
     for k, v in adv_accs:

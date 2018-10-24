@@ -69,7 +69,7 @@ class DistillTrainer(Trainer):
         self.labels = tf.placeholder(tf.float32, [None, 200], name="labels")
 
         model_tea = QCNN.create_model(self.FLAGS["teacher"])
-        self.logits = model_tea.get_logits(self.x) # FIXME: here should also support input of multiple batch size, as there will be multi pre-generated adv data in the future. (used in test)
+        self.logits = model_tea.get_logits(self.x)
         restore_vars = tf.global_variables()
         tea_t_vars = tf.trainable_variables()
         model_stu = QCNN.create_model(self.FLAGS["model"])
@@ -92,19 +92,33 @@ class DistillTrainer(Trainer):
         self.training_stu = model_stu.get_training_status()
         
         # Loss and metrics
-        soft_label = tf.nn.softmax(self.logits/self.FLAGS.temperature)
-        soft_logits = self.logits_stu/self.FLAGS.temperature
-        tile_num = tf.shape(soft_logits)[0]/batch_size
-        reshape_soft_label = tf.reshape(tf.tile(tf.expand_dims(soft_label, 1), [1, tile_num, 1]), [-1, 200])
-        reshape_labels = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tile_num, 1]), [-1, 200])
-        ce = tf.nn.softmax_cross_entropy_with_logits(\
-                labels=reshape_soft_label,\
-                 logits=soft_logits)
+        reshape_logits = tf.reshape(self.logits, [batch_size, -1, 200])
+        soft_label = tf.nn.softmax(reshape_logits/self.FLAGS.temperature)
+        reshape_labels = tf.expand_dims(self.labels, 1)
+        reshape_logits_stu = tf.reshape(self.logits_stu, [batch_size, -1, 200])
+        # soft_logits = self.logits_stu/self.FLAGS.temperature
+        soft_logits = reshape_logits_stu / self.FLAGS.temperature
+        # tile_num = tf.shape(soft_logits)[0]/batch_size
+        # tile_num_tea = tf.shape(self.logits)[0]/batch_size
+        # reshape_soft_label = tf.reshape(tf.tile(tf.expand_dims(soft_label, 1), [1, tf.shape(soft_logits)[0]/tf.shape(soft_label)[0], 1]), [-1, 200])
+        # reshape_soft_label = tf.reshape(tf.tile(tf.expand_dims(soft_label, 1), [1, tf.shape(soft_logits)[0]/tf.shape(soft_label)[0], 1]), [-1, 200])
+        # reshape_labels = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tile_num, 1]), [-1, 200])
+        # reshape_labels_tea = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tile_num_tea, 1]), [-1, 200])
+        # ce = tf.nn.softmax_cross_entropy_with_logits(
+        #     labels=reshape_soft_label,
+        #     logits=soft_logits,
+        #     name="distill_ce_loss")
+        ce = tf.nn.softmax_cross_entropy_with_logits(
+            labels=soft_label,
+            logits=soft_logits,
+            name="distill_ce_loss")
         self.distillation = tf.reduce_mean(ce)
-        origin_loss = tf.reduce_mean(
-            tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=self.logits_stu))
+        # self.original_loss = tf.reduce_mean(
+        #     tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=self.logits_stu))
+        self.original_loss = tf.reduce_mean(
+            tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=reshape_logits_stu))
 
-        self.loss = origin_loss * self.FLAGS.theta
+        self.loss = self.original_loss * self.FLAGS.theta
         if self.FLAGS.alpha != 0:
             self.loss += self.distillation * self.FLAGS.alpha
         if self.FLAGS.beta != 0:
@@ -112,11 +126,15 @@ class DistillTrainer(Trainer):
             self.loss += at_loss * self.FLAGS.beta
         else:
             self.at_loss = tf.constant(0.0)
-        self.index_label = tf.argmax(self.labels, -1)
-        self.reshape_index_label = tf.argmax(reshape_labels, -1)
-        correct = tf.equal(tf.argmax(self.logits_stu, -1), self.reshape_index_label)
+        # self.index_label = tf.argmax(self.labels, -1)
+        reshape_index_label = tf.argmax(reshape_labels, -1)
+        # self.reshape_index_label = tf.argmax(reshape_labels, -1)
+        # reshape_index_label_tea = tf.argmax(reshape_labels_tea, -1)
+        # correct = tf.equal(tf.argmax(self.logits_stu, -1), self.reshape_index_label)
+        correct = tf.equal(tf.argmax(reshape_logits_stu, -1), reshape_index_label)
         self.accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
-        tea_correct = tf.equal(tf.argmax(self.logits, -1), self.index_label)
+        # tea_correct = tf.equal(tf.argmax(self.logits, -1), reshape_index_label_tea)
+        tea_correct = tf.equal(tf.argmax(reshape_logits, -1), reshape_index_label)
         self.tea_accuracy = tf.reduce_mean(tf.cast(tea_correct, tf.float32))
 
         # Initialize the optimizer
@@ -216,7 +234,7 @@ class DistillTrainer(Trainer):
                 auged_x = img
             else:
                 auged_x = x_v
-            acc_v, tea_acc_v, loss_v = sess.run([self.accuracy, self.tea_accuracy, self.loss], feed_dict={
+            acc_v, tea_acc_v, loss_v = sess.run([self.accuracy, self.tea_accuracy, self.original_loss], feed_dict={
                 self.x: auged_x,
                 self.stu_x: auged_x,
                 self.labels: y_v,
@@ -230,7 +248,7 @@ class DistillTrainer(Trainer):
             if adv:
                 test_ids, adv_xs = self.test_attack_gen.generate_for_model(auged_x_v, y_v, "stu_", adv_x_v)
                 for test_id, adv_x in zip(test_ids, adv_xs):
-                    acc_v, tea_acc_v, loss_v = sess.run([self.accuracy, self.tea_accuracy, self.loss], feed_dict={
+                    acc_v, tea_acc_v, loss_v = sess.run([self.accuracy, self.tea_accuracy, self.original_loss], feed_dict={
                         self.stu_x: adv_x,
                         self.x: adv_x,
                         self.labels: y_v,
@@ -238,7 +256,14 @@ class DistillTrainer(Trainer):
                     })
                     if test_id not in test_res:
                         test_res[test_id] = np.zeros(4)
-                    test_res[test_id] += [acc_v, tea_acc_v, loss_v, np.mean(np.abs(adv_x - auged_x_v))]
+                    if adv_x.shape != auged_x_v.shape:
+                        sp = [auged_x_v.shape[0], adv_x.shape[0] / auged_x_v.shape[0]] + list(auged_x_v.shape[1:])
+                        tmp_adv_x = adv_x.reshape(sp)
+                        sp[1] = 1
+                        mean_dist = np.mean(np.abs(tmp_adv_x - auged_x_v.reshape(sp)))
+                    else:
+                        mean_dist = np.mean(np.abs(adv_x - auged_x_v)) # L1 dist
+                    test_res[test_id] += [acc_v, tea_acc_v, loss_v, mean_dist]
         image_disturb /= steps_per_epoch
         loss_v_epoch /= steps_per_epoch
         acc_v_epoch /= steps_per_epoch
