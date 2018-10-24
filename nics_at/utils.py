@@ -121,3 +121,11 @@ def profiling(func):
         all_profiled[name][1] += time.time() - start
         return res
     return _func
+
+def get_tensor_dependencies(tensor):
+    dependencies = set()
+    dependencies.update(tensor.op.inputs)
+    for sub_op in tensor.op.inputs:
+        dependencies.update(get_tensor_dependencies(sub_op))
+    return dependencies
+

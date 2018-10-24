@@ -30,9 +30,10 @@ def substitute_argscope(_callable, dct):
         raise Exception("not implemented")
 
 class AttackGenerator(object):
-    def __init__(self, generate_cfg, merge=False, use_cache=False):
+    def __init__(self, generate_cfg, merge=False, split_adv=False, use_cache=False):
         self.cfg = generate_cfg
         self.merge = merge # whether or not to merge all adv into 1 array
+        self.split_adv = split_adv # whether or not to split adv into multiple batch
         self.use_cache = use_cache
         self.batch_cache = {}
         self.epoch = 0
@@ -84,9 +85,16 @@ class AttackGenerator(object):
             else:
                 if "__generated__" in key:
                     adv_x = pre_adv_x
+                    if self.split_adv:
+                        adv_x = list(adv_x.transpose((1, 0, 2, 3, 4)))
+                        generated += adv_x
+                        last_key = keys[-1]
+                        keys = keys[:-1] + ["{}_split_{}".format(last_key, i) for i in range(len(adv_x))]
+                    else:
+                        generated.append(adv_x)
                 else:
                     adv_x = Attack.get_attack(a["id"]).generate(x, y)
-                generated.append(adv_x)
+                    generated.append(adv_x)
         if self.merge:
             generated = [np.expand_dims(g, 1) if len(g.shape) == 4 else g for g in generated]
             generated = [np.concatenate(generated, axis=1)]

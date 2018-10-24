@@ -30,6 +30,8 @@ class QCNN(Model):
     def __init__(self, namescope, params={}):
         super(Model, self).__init__()
         self.cached = {}
+
+        self.params = params
         self.test_only = params.get("test_only", False)
         self.logits = None
         self.reuse = False
@@ -39,6 +41,19 @@ class QCNN(Model):
         else:
             self.training = tf.placeholder_with_default(False, shape=())
         self.weight_decay = params.get("weight_decay", 0.0001)
+        self.output_name = params.get("output_name", "logits")
+
+        self._vars = []
+        self._trainable_vars = []
+        self._save_saver = None
+
+    @property
+    def trainable_vars(self):
+        return self._trainable_vars
+
+    @property
+    def vars(self):
+        return self._vars
 
     def get_training_status(self):
         return self.training
@@ -51,16 +66,59 @@ class QCNN(Model):
         """
         if inputs in self.cached:
             [setattr(self, n, v) for n, v in self.cached[inputs].iteritems()]
-            return self.cached[inputs]["logits"]
+            return self.cached[inputs][self.output_name]
         if self.cached:
             self.reuse = True
         else:
             self.reuse = False
+        if not self.reuse:
+            _before_vars = tf.global_variables()
+            if not self.test_only:
+                _before_t_vars = tf.trainable_variables()
         with tf.variable_scope(self.namescope, reuse=self.reuse):
             res = self._get_logits(inputs)
         [setattr(self, n, v) for n, v in res.iteritems()]
         self.cached[inputs] = res
-        return res["logits"]
+        _after_vars = tf.global_variables()
+        if not self.reuse:
+            for var_ in _before_vars:
+                if var_ in _after_vars:
+                    _after_vars.remove(var_)
+            self._vars += _after_vars
+            if not self.test_only:
+                _after_t_vars = tf.trainable_variables()
+                for var_ in _before_t_vars:
+                    if var_ in _after_t_vars:
+                        _after_t_vars.remove(var_)
+                self._trainable_vars += _after_t_vars
+        return res[self.output_name]
 
     def get_probs(self, x):
         return tf.nn.softmax(self.get_logits(x))
+
+    def get_saver(self, load_namescope=None, prepend=None):
+        var_namescope = self.namescope if not prepend else prepend + "/" + self.namescope
+        if load_namescope is None or load_namescope == var_namescope:
+            saver = tf.train.Saver(self.vars, max_to_keep=20)
+        else:
+            var_mapping_dct = {var.op.name.replace(var_namescope + "/", (load_namescope + "/") if load_namescope else ""): var for var in self.vars}
+            saver = tf.train.Saver(var_mapping_dct, max_to_keep=20)
+        return saver
+
+    def get_save_saver(self, prepend=None):
+        if not self._save_saver:
+            if prepend is None:
+                saver = tf.train.Saver(self.vars, max_to_keep=20)
+            else:
+                var_mapping_dct = {var.op.name.replace(prepend + "/", ""): var for var in self.vars}
+                saver = tf.train.Saver(var_mapping_dct, max_to_keep=20)
+        self._save_saver = saver
+        return saver
+
+    def load_checkpoint(self, path, sess, load_namescope=None, prepend_namescope=None):
+        self.saver = self.get_saver(load_namescope, prepend=prepend_namescope)
+        print("Load model from", path)
+        self.saver.restore(sess, path)
+
+    def save_checkpoint(self, path, sess, prepend_namescope=None):
+        self.get_save_saver(prepend=prepend_namescope).save(sess, path)

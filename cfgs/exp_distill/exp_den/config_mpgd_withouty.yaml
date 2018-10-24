@@ -1,0 +1,69 @@
+## Model
+teacher:
+  namescope: ""
+  type: resnet18
+  model_params:
+    weight_decay: 0.0001
+    test_only: true
+model:
+  type: denoise
+  namescope: stu_
+  model_params:
+    denoiser:
+      namescope: "denoise"
+      type: "prepend_denoiser"
+      model_params:
+        output_name: "denoise_output"
+    model: # can use the same model as in teacher... 
+      namescope: "inner"
+      type: "resnet18"
+      model_params:
+        test_only: true 
+# NOTE: for now, if use denoiser, do not train the baseline, only train denoiser 
+
+## Training
+alpha: 0.1
+beta: 0
+theta: 0.5
+temperature: 1
+at_mode: attention
+
+test_frequency: 1
+epochs: 40
+batch_size: 50
+adjust_lr_acc:
+  type: ExpDecay
+  start_lr: 0.01
+  decay: 0.1
+  decay_every: 15
+
+## Aug
+aug_gaussian: [0.02, 0.1]
+aug_saltpepper: [0, 0.2]
+
+## Adversarial Aug
+distill_use_auged: true
+update_per_batch: 1
+train_models: # iter train
+  stu_:
+    - id: stu_whitebox
+      gid: stu_whitebox
+      conds: ["epoch_mod(2, 1)"]
+    - id:
+      gid: normal
+      conds: ["epoch_mod(2, 0)"]
+
+test_models:
+  stu_:
+    - gid: stu_whitebox
+      id: stu_whitebox
+
+available_attacks:
+  - id: stu_whitebox
+    method: momentum_pgd
+    model: stu_
+    attack_params:
+      eps: 4.0
+      eps_iter: 1.0
+      nb_iter: 10
+      attack_with_y: false

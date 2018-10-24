@@ -5,6 +5,7 @@ import os
 import time
 import sys
 from datetime import datetime
+from collections import OrderedDict
 
 import numpy as np
 import tensorflow as tf
@@ -52,6 +53,7 @@ class DistillTrainer(Trainer):
             "available_attacks": [],
             "generated_adv": [],
             "train_merge_adv": False,
+            "split_adv": False,
 
             "additional_models": []
         }
@@ -68,28 +70,20 @@ class DistillTrainer(Trainer):
         self.stu_x = tf.placeholder(tf.float32, shape=[None, 64, 64, 3], name="stu_x")
         self.labels = tf.placeholder(tf.float32, [None, 200], name="labels")
 
-        model_tea = QCNN.create_model(self.FLAGS["teacher"])
-        self.logits = model_tea.get_logits(self.x)
-        restore_vars = tf.global_variables()
-        tea_t_vars = tf.trainable_variables()
-        model_stu = QCNN.create_model(self.FLAGS["model"])
-        self.logits_stu = model_stu.get_logits(self.stu_x)
-        self.save_vars = tf.global_variables()
-        AvailModels.add(model_stu, self.stu_x, self.logits_stu)
-        stu_t_vars = tf.trainable_variables()
-        for var_ in restore_vars:
-            self.save_vars.remove(var_)
-        for var_ in tea_t_vars:
-            stu_t_vars.remove(var_)
+        self.model_tea = QCNN.create_model(self.FLAGS["teacher"])
+        self.logits = self.model_tea.get_logits(self.x)
+        self.model_stu = QCNN.create_model(self.FLAGS["model"])
+        self.logits_stu = self.model_stu.get_logits(self.stu_x)
+        AvailModels.add(self.model_stu, self.stu_x, self.logits_stu)
+        if self.FLAGS.use_denoiser:
+            AvailModels.add(self.model_stu.inner_model, self.model_stu.denoiser.denoise_output, self.logits_stu)
 
-        self.saver = tf.train.Saver(self.save_vars, max_to_keep=20)
-        self.saver_res = tf.train.Saver(restore_vars, max_to_keep=20)
-
+        trainable_variables = self.model_stu.trainable_vars
         tf.get_default_graph().clear_collection("trainable_variables")
-        for var in stu_t_vars:
+        for var in trainable_variables:
             tf.add_to_collection("trainable_variables", var)
 
-        self.training_stu = model_stu.get_training_status()
+        self.training_stu = self.model_stu.get_training_status()
         
         # Loss and metrics
         tile_num = tf.shape(self.logits_stu)[0]/batch_size
@@ -130,7 +124,7 @@ class DistillTrainer(Trainer):
         self.learning_rate = tf.placeholder(tf.float32, shape=[])
         self.lr_adjuster = LrAdjuster.create_adjuster(self.FLAGS.adjust_lr_acc)
         optimizer = tf.train.MomentumOptimizer(self.learning_rate, momentum=0.9)
-        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, self.FLAGS.model["namescope"])
+        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, self.FLAGS.model["namescope"]) # NOTE: student must have a non-empty namescope
         with tf.control_dependencies(update_ops):
             self.grads_and_var = optimizer.compute_gradients(self.loss)
             self.train_step = optimizer.apply_gradients(self.grads_and_var)
@@ -139,8 +133,8 @@ class DistillTrainer(Trainer):
         config.gpu_options.allow_growth = True
         self.sess = tf.Session(config=config)
         [Attack.create_attack(self.sess, a_cfg) for a_cfg in self.FLAGS["available_attacks"]]
-        self.train_attack_gen = AttackGenerator(self.FLAGS["train_models"], merge=self.FLAGS.train_merge_adv)
-        self.test_attack_gen = AttackGenerator(self.FLAGS["test_models"])
+        self.train_attack_gen = AttackGenerator(self.FLAGS["train_models"], merge=self.FLAGS.train_merge_adv, split_adv=self.FLAGS.split_adv)
+        self.test_attack_gen = AttackGenerator(self.FLAGS["test_models"], split_adv=self.FLAGS.split_adv)
 
     def train(self):
         sess = self.sess
@@ -199,7 +193,7 @@ class DistillTrainer(Trainer):
                 if self.FLAGS.train_dir:
                     if epoch % self.FLAGS.save_every == 0:
                         save_path = os.path.join(self.FLAGS.train_dir, str(epoch))
-                        self.saver.save(sess, save_path)
+                        self.model_stu.save_checkpoint(save_path, sess)
                         utils.log("Saved student model to: ", save_path)
 
     def test(self, saltpepper=None, adv=False, name=""):
@@ -209,7 +203,7 @@ class DistillTrainer(Trainer):
         acc_v_epoch = 0
         tea_acc_v_epoch = 0
         image_disturb = 0
-        test_res = {}
+        test_res = OrderedDict()
         for step in range(1, steps_per_epoch+1):
             self.test_attack_gen.new_batch()
             x_v, auged_x_v, y_v, adv_x_v = sess.run([self.imgs_v, self.auged_imgs_v, self.labels_v, self.adv_imgs_v])
@@ -272,22 +266,26 @@ class DistillTrainer(Trainer):
         threads = tf.train.start_queue_runners(sess=sess, coord=coord)    
 
         if self.FLAGS.test_only:
-            # FIXME: all checkpoint loading staffs should be moved into methods of model 
-            if self.FLAGS.load_file_tea and not self.FLAGS.load_file_stu:
-                self.saver_res.restore(sess, self.FLAGS.load_file_tea)
-                # if self.FLAGS.model.more_blocks:
-                #     remove_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 
-                #                                     self.FLAGS.model["namescope"]+"/more_blocks" if self.FLAGS.model["namescope"] else "more_blocks")
-                #     for var_ in remove_vars:
-                #         if var_ in self.save_vars:
-                #             self.save_vars.remove(var_)
-                var_mapping_dct = {var.op.name.replace(self.FLAGS.model["namescope"] + "/", ""): var for var in self.save_vars}
-                load_stu = tf.train.Saver(var_mapping_dct)
-                load_stu.restore(sess, self.FLAGS.load_file_tea)
+            if not (self.FLAGS.load_file_stu or self.FLAGS.load_file_tea):
+                print("error: no input file. Must supply teacher model or stu model when testing.")
+                coord.request_stop()
+                coord.join(threads)
+                sys.exit(1)
+            # Load teacher model
+            if self.FLAGS.load_file_tea:
+                self.model_tea.load_checkpoint(self.FLAGS.load_file_tea, self.sess, self.FLAGS.load_namescope_tea)
+            if not self.FLAGS.load_file_stu:
+                load_namescope_stu = self.FLAGS.load_namescope_tea or self.FLAGS["teacher"].namescope
+                load_file_stu = self.FLAGS.load_file_tea
             else:
-                self.saver.restore(sess, self.FLAGS.load_file_stu)
-                if self.FLAGS.load_file_tea:
-                    self.saver_res.restore(sess, self.FLAGS.load_file_tea)
+                load_namescope_stu = self.FLAGS.load_namescope_stu
+                load_file_stu = self.FLAGS.load_file_stu
+            # Load student model
+            if self.FLAGS.use_denoiser:
+                self.model_stu.load_checkpoint([self.FLAGS.load_file_den, load_file_stu], self.sess, [self.FLAGS.load_namescope_den, load_namescope_stu])
+            else:
+                self.model_stu.load_checkpoint(load_file_stu, self.sess, load_namescope_stu)
+            # Testing
             self.test(adv=True)
             if FLAGS.test_saltpepper is not None:
                 if isinstance(FLAGS.test_saltpepper, (tuple, list)):
@@ -299,32 +297,31 @@ class DistillTrainer(Trainer):
             coord.join(threads)
             sys.exit(0)
 
-        if self.FLAGS.load_file_tea and not self.FLAGS.load_file_stu:
-            self.saver_res.restore(sess, self.FLAGS.load_file_tea)
-            # if self.FLAGS.more_blocks:
-            #     remove_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 
-            #                                     self.FLAGS.model["namescope"]+"/more_blocks" if self.FLAGS.model["namescope"] else "more_blocks")
-            #     for var_ in remove_vars:
-            #         if var_ in self.save_vars:
-            #             self.save_vars.remove(var_)
-            var_mapping_dct = {var.op.name.replace(self.FLAGS.model["namescope"] + "/",""): var for var in self.save_vars}
-                                                       
-            load_stu = tf.train.Saver(var_mapping_dct)
-            load_stu.restore(sess, self.FLAGS.load_file_tea)
-            if not self.FLAGS.no_init_test:
-                self.test(adv=True, name="loaded_teacher_copy")
-            utils.log("Start training...")
-            self.train()
-        elif self.FLAGS.load_file_stu:
-            self.saver.restore(sess, self.FLAGS.load_file_stu)
-            if self.FLAGS.load_file_tea:
-                self.saver_res.restore(sess, self.FLAGS.load_file_tea)
-            if not self.FLAGS.no_init_test:
-                self.test(adv=True, name="loaded_normal_adv")
-            utils.log("Start training...")
-            self.train()
+        if not self.FLAGS.load_file_tea:
+            print("error: no input file. Must supply teacher model for training.")
+            coord.request_stop()
+            coord.join(threads)
+            sys.exit(1)
+        # Load teacher model
+        self.model_tea.load_checkpoint(self.FLAGS.load_file_tea, self.sess, self.FLAGS.load_namescope_tea)
+        if not self.FLAGS.load_file_stu:
+            load_namescope_stu = self.FLAGS.load_namescope_tea or self.FLAGS["teacher"]["namescope"]
+            load_file_stu = self.FLAGS.load_file_tea
         else:
-            print("error: no input file.")
+            load_namescope_stu = self.FLAGS.load_namescope_stu
+            load_file_stu = self.FLAGS.load_file_stu
+        # Load student model
+        if self.FLAGS.use_denoiser:
+            self.model_stu.load_checkpoint([self.FLAGS.load_file_den, load_file_stu], self.sess, [self.FLAGS.load_namescope_den, load_namescope_stu])
+        else:
+            self.model_stu.load_checkpoint(load_file_stu, self.sess, load_namescope_stu)
+        # Testing
+        if not self.FLAGS.no_init_test:
+            self.test(adv=True, name="loaded_teacher_copy")
+        # Training
+        utils.log("Start training...")
+        self.train()
+
         coord.request_stop()
         coord.join(threads)
 
@@ -334,3 +331,13 @@ class DistillTrainer(Trainer):
                             help="Load student model")
         parser.add_argument("--load-file-tea", type=str, default="",
                             help="Load teacher model")
+        parser.add_argument("--load-namescope-stu", type=str, default=None,
+                            help="The namescope of the student model")
+        parser.add_argument("--load-namescope-tea", type=str, default=None,
+                            help="The namescope of the teacher model")
+
+        parser.add_argument("--use-denoiser", action="store_true", default=False)
+        parser.add_argument("--load-file-den", type=str, default=None,
+                            help="Load denoiser model")
+        parser.add_argument("--load-namescope-den", type=str, default=None,
+                            help="The namescope of the denoiser model")
