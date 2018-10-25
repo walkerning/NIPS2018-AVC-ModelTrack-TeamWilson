@@ -122,7 +122,7 @@ for bm in boundary_maps:
     bm_pic_maps.append(bm_pic)
 
 
-fig = plt.figure()
+fig = plt.figure(figsize=(3*len(model_names), 4))
 for i, (mn, pic) in enumerate(zip(model_names, bm_pic_maps)):
     ax = fig.add_subplot(1, len(models), i+1)
     ax.imshow(pic)
@@ -147,11 +147,11 @@ plt.savefig(os.path.join(res_dir, img_key + "-step_{}.png".format(step)))
 X = np.arange(-dist[0], dist[0] + step, step)
 Y = np.arange(-dist[1], dist[1] + step, step)
 X, Y = np.meshgrid(X, Y)
-fig = plt.figure()
+fig = plt.figure(figsize=(3*len(model_names), 4))
 for i in range(len(models)):
     ax = fig.add_subplot(1, len(models), i+1, projection='3d')
-    import pdb
-    pdb.set_trace()
+    # import pdb
+    # pdb.set_trace()
     ax.plot_surface(X, Y, iter_loss[i])
     ax.set_title(model_names[i])
 plt.suptitle(test_name + " " + img_key + " step {} grad".format(step))

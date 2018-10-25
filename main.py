@@ -56,8 +56,11 @@ class ImageReader(object):
             for key in data.keys():
                 im = self._read_image(key)
                 if im.shape != (64, 64, 3):
-                    logging.warning("shape of image read from file {} is not (64, 64, 3). ignore.".format(key))
-                    continue
+                    if im.shape != (64,64):
+                        logging.warning("shape of image read from file {} is not (64, 64, 3) or (64, 64). ignore.".format(key))
+                        continue
+                    im = np.tile(np.expand_dims(im, -1), (1,1,3))
+                    # continue
                 yield (key, im, data[key])
 
 def pgd_03_001_40_re_transfer_attack(model, image, label, verbose=False):
@@ -94,6 +97,11 @@ def l2i_03_005_10_nobs_transfer_attack(model, image, label, verbose=False):
     criterion = foolbox.criteria.Misclassification()
     attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
     return attack(image, label, epsilon=0.3, stepsize=0.05, iterations=10, binary_search=False)
+
+def l2i_05_01_10_nobs_transfer_attack(model, image, label, verbose=False):
+    criterion = foolbox.criteria.Misclassification()
+    attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
+    return attack(image, label, epsilon=0.5, stepsize=0.1, iterations=10, binary_search=False)
 
 def l2i_01_002_10_nobs_transfer_attack(model, image, label, verbose=False):
     criterion = foolbox.criteria.Misclassification()
@@ -149,13 +157,13 @@ def boundary_attack(model, image, label, verbose=False):
         return attack(image, label, iterations=45, max_directions=10,
                       tune_batch_size=False, starting_point=init_adversarial, verbose=verbose)
 
-avail_attacks = ["gaussian", "saltnpepper", "boundary", "transfer", "iterative_transfer", "pgd_transfer", "pgd_005_transfer", "pgd_03_001_40_re_transfer", "pgd_03_001_40_bs_transfer", "l2i_01_002_10_bs_transfer", "l2i_01_002_10_nobs_transfer", "l2i_03_005_10_nobs_transfer"]
+avail_attacks = ["gaussian", "saltnpepper", "boundary", "transfer", "iterative_transfer", "pgd_transfer", "pgd_005_transfer", "pgd_03_001_40_re_transfer", "pgd_03_001_40_bs_transfer", "l2i_01_002_10_bs_transfer", "l2i_01_002_10_nobs_transfer", "l2i_03_005_10_nobs_transfer", "l2i_05_01_10_nobs_transfer"]
 bms = {n: globals()[n + "_attack"] for n in avail_attacks}
 
-def main(reader, types, save, verbose=False):
+def main(reader, types, save, verbose=False, addi_name=None):
     # instantiate blackbox and substitute model
     test_user = pwd.getpwuid(os.getuid()).pw_name
-    container_name = 'avc_test_model_submission_{}'.format(test_user)
+    container_name = 'avc_test_model_submission_{}{}'.format(test_user, "_{}".format(addi_name) if addi_name else "")
     form = '{{ .NetworkSettings.IPAddress }}'
     cmd = "docker inspect --format='{}' {}".format(form, container_name)
     p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
@@ -167,6 +175,7 @@ def main(reader, types, save, verbose=False):
 
     p = subprocess.Popen("docker exec " + container_name + " bash -c 'echo $EVALUATOR_SECRET'", shell=True, stdout=subprocess.PIPE)
     env_sec = p.stdout.read()[:-1].decode('UTF-8')
+    print("Using container: {}. addr: {}:{}", container_name, ip, port)
 
     os.environ["MODEL_SERVER"] = ip
     os.environ["MODEL_PORT"] = port
@@ -261,6 +270,7 @@ if __name__ == '__main__':
     parser.add_argument("-t", "--type", action="append", choices=avail_attacks, default=[], help="what attack to be performed") # , required=True)
     parser.add_argument("--image-type", choices=ImageReader.available_methods, default="npy", help="image type")
     parser.add_argument("--use-tofile", action="store_true", default=False, help="use arr.tofile instead of np.save")
+    parser.add_argument("--name", default=None, help="default to the current user name")
 
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
@@ -276,4 +286,4 @@ if __name__ == '__main__':
         logging.basicConfig(level=logging.WARNING)
 
     reader = ImageReader(args.image_type)
-    main(reader, args.type, args.save is not None, verbose=args.verbose)
+    main(reader, args.type, args.save is not None, verbose=args.verbose, addi_name=args.name)
