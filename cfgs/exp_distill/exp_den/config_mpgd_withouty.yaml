@@ -1,6 +1,6 @@
 ## Model
 teacher:
-  namescope: ""
+  namescope: tea
   type: resnet18
   model_params:
     weight_decay: 0.0001
@@ -57,11 +57,26 @@ test_models:
   stu_:
     - gid: stu_whitebox
       id: stu_whitebox
+    - gid: stu_whitebox_eps8
+      id: stu_whitebox
+      attack_params:
+        eps: 8.0
+        eps_iter: 2.0
+    - gid: tea_whitebox
+      id: tea_whitebox
 
 available_attacks:
   - id: stu_whitebox
     method: momentum_pgd
     model: stu_
+    attack_params:
+      eps: 4.0
+      eps_iter: 1.0
+      nb_iter: 10
+      attack_with_y: false
+  - id: tea_whitebox
+    method: momentum_pgd
+    model: tea
     attack_params:
       eps: 4.0
       eps_iter: 1.0

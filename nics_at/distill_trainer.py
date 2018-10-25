@@ -74,6 +74,7 @@ class DistillTrainer(Trainer):
         self.logits = self.model_tea.get_logits(self.x)
         self.model_stu = QCNN.create_model(self.FLAGS["model"])
         self.logits_stu = self.model_stu.get_logits(self.stu_x)
+        AvailModels.add(self.model_tea, self.x, self.logits)
         AvailModels.add(self.model_stu, self.stu_x, self.logits_stu)
         if self.FLAGS.use_denoiser:
             AvailModels.add(self.model_stu.inner_model, self.model_stu.denoiser.denoise_output, self.logits_stu)
@@ -275,7 +276,7 @@ class DistillTrainer(Trainer):
             if self.FLAGS.load_file_tea:
                 self.model_tea.load_checkpoint(self.FLAGS.load_file_tea, self.sess, self.FLAGS.load_namescope_tea)
             if not self.FLAGS.load_file_stu:
-                load_namescope_stu = self.FLAGS.load_namescope_tea or self.FLAGS["teacher"].namescope
+                load_namescope_stu = self.FLAGS["teacher"].namescope if self.FLAGS.load_namescope_tea is None else self.FLAGS.load_namescope_tea
                 load_file_stu = self.FLAGS.load_file_tea
             else:
                 load_namescope_stu = self.FLAGS.load_namescope_stu
@@ -305,7 +306,7 @@ class DistillTrainer(Trainer):
         # Load teacher model
         self.model_tea.load_checkpoint(self.FLAGS.load_file_tea, self.sess, self.FLAGS.load_namescope_tea)
         if not self.FLAGS.load_file_stu:
-            load_namescope_stu = self.FLAGS.load_namescope_tea or self.FLAGS["teacher"]["namescope"]
+            load_namescope_stu = self.FLAGS["teacher"].namescope if self.FLAGS.load_namescope_tea is None else self.FLAGS.load_namescope_tea
             load_file_stu = self.FLAGS.load_file_tea
         else:
             load_namescope_stu = self.FLAGS.load_namescope_stu

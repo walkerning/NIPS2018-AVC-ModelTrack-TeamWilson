@@ -112,8 +112,8 @@ class QCNN(Model):
             else:
                 var_mapping_dct = {var.op.name.replace(prepend + "/", ""): var for var in self.vars}
                 saver = tf.train.Saver(var_mapping_dct, max_to_keep=20)
-        self._save_saver = saver
-        return saver
+            self._save_saver = saver
+        return self._save_saver
 
     def load_checkpoint(self, path, sess, load_namescope=None, prepend_namescope=None):
         self.saver = self.get_saver(load_namescope, prepend=prepend_namescope)
