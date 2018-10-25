@@ -125,7 +125,10 @@ class DistillTrainer(Trainer):
         self.learning_rate = tf.placeholder(tf.float32, shape=[])
         self.lr_adjuster = LrAdjuster.create_adjuster(self.FLAGS.adjust_lr_acc)
         optimizer = tf.train.MomentumOptimizer(self.learning_rate, momentum=0.9)
-        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, self.FLAGS.model["namescope"]) # NOTE: student must have a non-empty namescope
+        if not self.FLAGS.use_denoiser:
+            update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, self.FLAGS.model["namescope"]) # NOTE: student must have a non-empty namescope
+        else:
+            update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, self.FLAGS.model["namescope"] + "/" + self.FLAGS.model["model_params"]["denoiser"]["namescope"]) # NOTE: student must have a non-empty namescope
         with tf.control_dependencies(update_ops):
             self.grads_and_var = optimizer.compute_gradients(self.loss)
             self.train_step = optimizer.apply_gradients(self.grads_and_var)
@@ -288,7 +291,7 @@ class DistillTrainer(Trainer):
                 self.model_stu.load_checkpoint(load_file_stu, self.sess, load_namescope_stu)
             # Testing
             self.test(adv=True)
-            if FLAGS.test_saltpepper is not None:
+            if self.FLAGS.test_saltpepper is not None:
                 if isinstance(FLAGS.test_saltpepper, (tuple, list)):
                     for sp in FLAGS.test_saltpepper:
                         self.test(saltpepper=sp, adv=False, name="saltpepper_{}".format(sp))
