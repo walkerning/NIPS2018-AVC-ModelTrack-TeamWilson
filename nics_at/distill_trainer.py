@@ -309,7 +309,7 @@ class DistillTrainer(Trainer):
         # Load teacher model
         self.model_tea.load_checkpoint(self.FLAGS.load_file_tea, self.sess, self.FLAGS.load_namescope_tea)
         if not self.FLAGS.load_file_stu:
-            load_namescope_stu = self.FLAGS["teacher"].namescope if self.FLAGS.load_namescope_tea is None else self.FLAGS.load_namescope_tea
+            load_namescope_stu = self.FLAGS["teacher"]["namescope"] if self.FLAGS.load_namescope_tea is None else self.FLAGS.load_namescope_tea
             load_file_stu = self.FLAGS.load_file_tea
         else:
             load_namescope_stu = self.FLAGS.load_namescope_stu

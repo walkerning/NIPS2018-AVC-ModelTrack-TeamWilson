@@ -75,6 +75,9 @@ class DenoiseNet(QCNN):
     def trainable_vars(self):
         return self.denoiser.trainable_vars + self.inner_model.trainable_vars
 
+    def get_training_status(self):
+        return self.denoiser.training
+
     def _get_logits(self, inputs): # FIXME: should cache in denoiser
         denoise_output = self.denoiser.get_logits(inputs)
         self.logits = self.inner_model.get_logits(denoise_output)
