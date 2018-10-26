@@ -25,6 +25,7 @@ class MutualTrainer(Trainer):
             # Training
             "distill_use_auged": False,
             "num_threads": 2,
+            "more_augs": False,
             "epochs": 50,
             "batch_size": 100,
             "adjust_lr_acc": None,
