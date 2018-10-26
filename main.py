@@ -1,5 +1,6 @@
 #!/home/foxfi/anaconda3/bin/python3
 import os
+import sys
 import pwd
 import yaml
 import logging
@@ -175,7 +176,7 @@ def main(reader, types, save, verbose=False, addi_name=None):
 
     p = subprocess.Popen("docker exec " + container_name + " bash -c 'echo $EVALUATOR_SECRET'", shell=True, stdout=subprocess.PIPE)
     env_sec = p.stdout.read()[:-1].decode('UTF-8')
-    print("Using container: {}. addr: {}:{}", container_name, ip, port)
+    print("Using container: {}. addr: {}:{}".format(container_name, ip, port))
 
     os.environ["MODEL_SERVER"] = ip
     os.environ["MODEL_PORT"] = port
@@ -230,6 +231,7 @@ def main(reader, types, save, verbose=False, addi_name=None):
             #     pixel_dis = np.mean(np.abs(adversarial - image))
             distances[it].append(pixel_dis)
             print("image {}: {} attack / distance: {}".format(ind+1, tp, pixel_dis))
+            sys.stdout.flush()
             # if args.save and adversarial is not None:
             #     # store_adversarial(os.path.join(tp, file_name + "_" + str(pixel_dis)), adversarial)
             #     store_adversarial(os.path.join(tp, os.path.basename(file_name)), adversarial)

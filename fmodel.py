@@ -12,17 +12,24 @@ class EnsembleModel(DifferentiableModel):
     def num_classes(self):
         pass
 
-    def __init__(self, models, cfgs, bounds=(0, 255), channel_axis=3, preprocessing=(0, 1)):
+    def __init__(self, models, cfgs, ensemble_type="weight", bounds=(0, 255), channel_axis=3, preprocessing=(0, 1)):
         super(EnsembleModel, self).__init__(bounds, channel_axis, preprocessing)
         self.models = models
         self.cfgs = cfgs
+        self.ensemble_type = ensemble_type
         self.num_classes = models[0].num_classes
         self.names = [cfg.get("name", cfg["type"]) for cfg in cfgs]
         self.weights = np.array([cfg.get("weight", 1.0) for cfg in cfgs])
         self.weights = self.weights / np.sum(self.weights)
+        assert self.ensemble_type in {"vote", "weight"}
+        print("ensemble type : {};  number of model: {} ".format(self.ensemble_type, len(self.models)))
 
     def batch_predictions(self, images):
         predictions = [m.batch_predictions(images) for m in self.models]
+        if self.ensemble_type == "vote":
+            predictions = [np.argmax(pred, -1) for pred in predictions]
+            tmp = np.eye(self.num_classes)
+            predictions = [tmp[p] for p in predictions]
         return np.sum(self.weights.reshape(len(self.models), 1, 1) * predictions, axis=0)
 
     def predictions_and_gradient(self, image, label):
@@ -39,15 +46,14 @@ def create_fmodel():
     here = os.path.dirname(os.path.abspath(__file__))
     cfg_fname = os.environ.get("FMODEL_MODEL_CFG", "model.yaml")
     print("Load fmodel cfg from {}".format(cfg_fname))
-    model_cfg_file = os.path.join(here, cfg_fname)
-    with open(model_cfg_file, "r") as f:
+    with open(cfg_fname, "r") as f:
         model_cfg = yaml.load(f)
     models = []
     for m in model_cfg["models"]:
         mod = importlib.import_module("dmodels." + m["type"])
         assert hasattr(mod, "Model"), "model package must have an attribute named Model"
         models.append(mod.Model.create_fmodel(m))
-    fmodel = EnsembleModel(models, model_cfg["models"])
+    fmodel = EnsembleModel(models, model_cfg["models"], ensemble_type=model_cfg.get("ensemble_type", "weight"))
     return fmodel
 
 if __name__ ==  "__main__":
