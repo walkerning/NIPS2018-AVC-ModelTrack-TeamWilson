@@ -193,8 +193,8 @@ class DistillTrainer(Trainer):
 
             # Test on the validation set
             if epoch % self.FLAGS.test_frequency == 0:
-                self.test(adv=True, name="normal_adv")
-                self.lr_adjuster.add()
+                test_accs = self.test(adv=True, name="normal_adv")
+                self.lr_adjuster.add_multiple_acc(test_accs)
                 if self.FLAGS.train_dir:
                     if epoch % self.FLAGS.save_every == 0:
                         save_path = os.path.join(self.FLAGS.train_dir, str(epoch))
@@ -259,8 +259,9 @@ class DistillTrainer(Trainer):
         print("\r", end="")
         utils.log("\tTest {}: \n\t\tloss: {}; accuracy: {:.2f} %; teacher accuracy: {:.2f} %; Mean pixel distance: {:.2f}".format(name, loss_v_epoch, acc_v_epoch * 100, tea_acc_v_epoch * 100, image_disturb))
         if adv:
-            utils.log("\tAdv:\n\t\t{}".format("\n\t\t".join(["test {}: acc: {:.2f}; tea_acc: {:.2f}; ce_loss: {:.2f}; dist: {:.2f}".format(test_id, *(attack_res/steps_per_epoch)) for test_id, attack_res in test_res.items()])), flush=True)
-
+            utils.log("\tAdv:\n\t\t{}".format("\n\t\t".join(["test {}: acc: {:.3f}; tea_acc: {:.3f}; ce_loss: {:.2f}; dist: {:.2f}".format(test_id, *(attack_res/steps_per_epoch)) for test_id, attack_res in test_res.items()])), flush=True)
+        return [acc_v_epoch] + [v[0]/steps_per_epoch for v in test_res.values()]
+        
     def start(self):
         sess = self.sess
         if self.FLAGS.train_dir:

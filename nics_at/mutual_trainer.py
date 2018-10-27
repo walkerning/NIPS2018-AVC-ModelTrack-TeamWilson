@@ -210,7 +210,8 @@ class MutualTrainer(Trainer):
         if adv:
             utils.log("\tAdv:")
             for mn, model_res in zip(self.namescope_lst, test_res):
-                utils.log("\t\tModel {}:\n\t\t\t{}".format(mn, "\n\t\t\t".join(["test {}: acc: {:.2f}; ce_loss: {:.2f}; dist: {:.2f}".format(test_id, *(attack_res/steps_per_epoch)) for test_id, attack_res in model_res.items()])), flush=True)
+                utils.log("\t\tModel {}:\n\t\t\t{}".format(mn, "\n\t\t\t".join(["test {}: acc: {:.3f}; ce_loss: {:.2f}; dist: {:.2f}".format(test_id, *(attack_res/steps_per_epoch)) for test_id, attack_res in model_res.items()])), flush=True)
+        return list(acc_lst_v_test) + sum([[v[0]/steps_per_epoch for v in mr.values()] for mr in test_res])
 
     def train(self):
         sess = self.sess
@@ -269,8 +270,8 @@ class MutualTrainer(Trainer):
 
             # Test on the validation set
             if epoch % self.FLAGS.test_frequency == 0:
-                self.test(adv=True, name="normal_adv")
-                self.lr_adjuster.add()
+                test_accs = self.test(adv=True, name="normal_adv")
+                self.lr_adjuster.add_multiple_acc(test_accs)
                 if self.FLAGS.train_dir:
                     if epoch % self.FLAGS.save_every == 0:
                         save_path = os.path.join(self.FLAGS.train_dir, str(epoch))
