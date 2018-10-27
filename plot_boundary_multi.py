@@ -26,8 +26,10 @@ parser.add_argument("--model", action="append", default=[])
 parser.add_argument("--use-grad", action="append", default=[])
 parser.add_argument("--save", required=True)
 parser.add_argument("--save-log", required=True)
+parser.add_argument("--gpu", default="0", type=str)
 args = parser.parse_args()
 
+os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 log_file = open(args.save_log, "a")
 
 def create_fmodel_(cfg_path):
@@ -74,15 +76,20 @@ for imi, (img_key, label) in enumerate(label_dct.items()):
     img, label = np.load(os.path.join(image_dir, img_key)).astype(np.float32), label_dct[img_key]
     directions = []
     direction_names = []
+    not_correct = []
     for i, (model, name) in enumerate(zip(models, names)):
-        assert np.argmax(model.predictions(img)) == label
+        if np.argmax(model.predictions(img)) != label:
+            not_correct.append(name)
+            continue
         grad = model.predictions_and_gradient(img, label)[1].reshape(-1)
         grad_norm = np.linalg.norm(grad)
         all_grad_norms[i][img_key] = grad_norm
         if name in use_grad:
             directions.append(grad / grad_norm)
         # norma_grad = grad / grad_norm
-
+    if not_correct:
+        print(img_key, "models that are not correct on this image: ", not_correct, file=log_file)
+        continue
     for i, imdir in enumerate(args.adv_path):
         adv_img = np.load(os.path.join(imdir, img_key)).astype(np.float32)
         unn_dist = np.linalg.norm(adv_img - img)
@@ -133,14 +140,14 @@ for imi, (img_key, label) in enumerate(label_dct.items()):
     print(img_key, dtb_lst, file=log_file)
     log_file.flush()
     print("\r{}/{}: Finish searching for {}".format(imi+1, total_pic_num, img_key))
-yaml.dump({
+np.savez(open(args.save, "wb"), **{
     #"adv_path": args.adv_path,
     "model_names": names,
     "dtb_dct": all_dtb_dct,
     "direction_names": direction_names,
     "grad_norms": all_grad_norms,
     "all_adv_dists": all_adv_dists
-}, open(args.save, "w"))
+})
 
 
 """
