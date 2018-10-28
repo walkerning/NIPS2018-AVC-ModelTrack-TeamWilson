@@ -32,7 +32,7 @@ class BaseTFModel(BaseModel):
     def model_vars(self):
         if not hasattr(self, "_model_vars"):
             if self.name_space:
-                self._model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name_space)
+                self._model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, self.name_space + "/")
             else:
                 self._model_vars = self._vars_after_model
         return self._model_vars

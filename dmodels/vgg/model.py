@@ -2,14 +2,14 @@
 import tensorflow as tf
 
 from ..tf_base import BaseTFModel
-from ..utils import tf_vars_before_after
+from ..utils import tf_vars_before_after, handle_name_space
 
 class VGG(BaseTFModel):
     FRAMEWORK = "tensorflow"
     def __init__(self, name_space=""):
         # no configuration now
         super(VGG, self).__init__()
-        self.name_space = name_space
+        self.name_space = handle_name_space(name_space)
 
     @tf_vars_before_after
     def __call__(self, inputs, training):

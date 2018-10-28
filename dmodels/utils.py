@@ -17,3 +17,11 @@ def tf_vars_before_after(func):
                 model._vars_after_model.remove(_var)
         return res
     return _func
+
+def handle_name_space(nsp):
+    if nsp == "__random__":
+        import string
+        import random
+        return "".join([random.choice(string.ascii_lowercase + string.digits) for _ in range(10)])
+    else:
+        return nsp

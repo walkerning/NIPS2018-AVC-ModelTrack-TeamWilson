@@ -34,7 +34,7 @@ from __future__ import print_function
 import tensorflow as tf
 
 from ..tf_base import BaseTFModel
-from ..utils import tf_vars_before_after
+from ..utils import tf_vars_before_after, handle_name_space
 
 _BATCH_NORM_DECAY = 0.997
 _BATCH_NORM_EPSILON = 1e-5
@@ -423,7 +423,7 @@ class ResNet(BaseTFModel):
     self.block_strides = block_strides
     self.final_size = final_size
 
-    self.name_space = name_space
+    self.name_space = handle_name_space(name_space)
 
   @tf_vars_before_after
   def __call__(self, inputs, training):
