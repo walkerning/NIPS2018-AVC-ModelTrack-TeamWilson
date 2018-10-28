@@ -199,7 +199,14 @@ class MutualTrainer(Trainer):
                         })
                         if test_id not in test_res[mi]:
                             test_res[mi][test_id] = np.zeros(3)
-                        test_res[mi][test_id] += [acc_v, ce_loss_v, np.mean(np.abs(adv_x - auged_x_v))]
+                        if adv_x.shape != auged_x_v.shape:
+                            sp = [auged_x_v.shape[0], adv_x.shape[0] / auged_x_v.shape[0]] + list(auged_x_v.shape[1:])
+                            tmp_adv_x = adv_x.reshape(sp)
+                            sp[1] = 1
+                            mean_dist = np.mean(np.abs(tmp_adv_x - auged_x_v.reshape(sp)))
+                        else:
+                            mean_dist = np.mean(np.abs(adv_x - auged_x_v)) # L1 dist
+                        test_res[mi][test_id] += [acc_v, ce_loss_v, mean_dist]
         image_disturb /= steps_per_epoch
         loss_lst_v_test /= steps_per_epoch
         acc_lst_v_test /= steps_per_epoch
@@ -211,7 +218,7 @@ class MutualTrainer(Trainer):
             utils.log("\tAdv:")
             for mn, model_res in zip(self.namescope_lst, test_res):
                 utils.log("\t\tModel {}:\n\t\t\t{}".format(mn, "\n\t\t\t".join(["test {}: acc: {:.3f}; ce_loss: {:.2f}; dist: {:.2f}".format(test_id, *(attack_res/steps_per_epoch)) for test_id, attack_res in model_res.items()])), flush=True)
-        return list(acc_lst_v_test) + sum([[v[0]/steps_per_epoch for v in mr.values()] for mr in test_res])
+        return list(acc_lst_v_test) + sum([[v[0]/steps_per_epoch for v in mr.values()] for mr in test_res], [])
 
     def train(self):
         sess = self.sess

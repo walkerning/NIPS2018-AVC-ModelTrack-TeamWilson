@@ -55,6 +55,7 @@ class DistillTrainer(Trainer):
             "generated_adv": [],
             "train_merge_adv": False,
             "split_adv": False,
+            "multi_grad_accumulate": False,
 
             "additional_models": []
         }
@@ -138,9 +139,20 @@ class DistillTrainer(Trainer):
             update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, self.FLAGS.model["namescope"]) # NOTE: student must have a non-empty namescope
         else:
             update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, self.FLAGS.model["namescope"] + "/" + self.FLAGS.model["model_params"]["denoiser"]["namescope"]) # NOTE: student must have a non-empty namescope
-        with tf.control_dependencies(update_ops):
-            self.grads_and_var = optimizer.compute_gradients(self.loss)
-            self.train_step = optimizer.apply_gradients(self.grads_and_var)
+
+        if self.FLAGS.multi_grad_accumulate:
+            tvs = tf.trainable_variables()
+            accum_vars = [tf.Variable(tf.zeros_like(tv), trainable=False) for tv in tvs]
+            self.zero_agrad_op = [tv.assign(tf.zeros_like(tv)) for tv in accum_vars]
+            self.grads_and_vars = optimizer.compute_gradients(self.loss, tvs)
+            # NOTE: the batch norm update is done every small iter (hope it will not cause severe vibration)
+            with tf.control_dependencies(update_ops):
+                self.accum_ops = [accum_vars[i].assign_add(gv[0]) for i, gv in enumerate(self.grads_and_vars)]
+            self.train_step = optimizer.apply_gradients([(accum_vars[i], gv[1]) for i, gv in enumerate(self.grads_and_vars)])
+        else:
+            with tf.control_dependencies(update_ops):
+                self.grads_and_var = optimizer.compute_gradients(self.loss)
+                self.train_step = optimizer.apply_gradients(self.grads_and_var)
 
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
@@ -176,16 +188,24 @@ class DistillTrainer(Trainer):
                 run_start_time = time.time()
                 if step == 1 and info_v_epoch.shape[0] != len(adv_xs):
                     info_v_epoch = np.zeros((len(adv_xs), 5))
+                actual_lr = now_lr / len(adv_xs)
+                if self.FLAGS.multi_grad_accumulate:
+                    sess.run(self.zero_agrad_op)
                 for adv_x in adv_xs:
                     feed_dict = {
                         self.x: x_v if not self.FLAGS.distill_use_auged else auged_x_v,
                         self.stu_x: adv_x,
                         self.training_stu: True,
                         self.labels: y_v,
-                        self.learning_rate: now_lr
+                        self.learning_rate: actual_lr
                     }
-                    info_v, _ = sess.run([[self.loss, self.distillation, self.at_loss, self.accuracy, self.tea_accuracy], self.train_step], feed_dict=feed_dict)
+                    if not self.FLAGS.multi_grad_accumulate:
+                        info_v, _ = sess.run([[self.loss, self.distillation, self.at_loss, self.accuracy, self.tea_accuracy], self.train_step], feed_dict=feed_dict)
+                    else:
+                        info_v, _ = sess.run([[self.loss, self.distillation, self.at_loss, self.accuracy, self.tea_accuracy], self.accum_ops], feed_dict=feed_dict)
                     inner_info_v.append(info_v)
+                if self.FLAGS.multi_grad_accumulate:
+                    sess.run(self.train_step, feed_dict={self.learning_rate: actual_lr})
                 run_time += time.time() - run_start_time
                 info_v_epoch += inner_info_v
                 if step % self.FLAGS.print_every == 0:
