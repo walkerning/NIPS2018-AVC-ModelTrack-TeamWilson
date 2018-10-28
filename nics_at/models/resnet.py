@@ -28,6 +28,7 @@ class Resnet(QCNN):
         self.block_sizes = [2, 2, 2, 2]
         self.block_strides = [1, 2, 2, 2]
         self.final_size = 512
+        self.more_blocks = params.get("more_blocks", False)
 
     def batch_norm(self, inputs, training, data_format):
         """Performs a batch normalization using a standard set of parameters."""
@@ -73,10 +74,14 @@ class Resnet(QCNN):
         if strides > 1:
             inputs = self.fixed_padding(inputs, kernel_size, data_format)
 
+        if self.more_blocks:
+            factor_ = 0.5
+        else:
+            factor_ = 2.0
         return tf.layers.conv2d(
                 inputs=inputs, filters=filters, kernel_size=kernel_size, strides=strides,
                 padding=('SAME' if strides == 1 else 'VALID'), use_bias=False,
-                kernel_initializer=tf.variance_scaling_initializer(),
+                kernel_initializer=tf.variance_scaling_initializer(scale=factor_),
                 data_format=data_format)
 
 
@@ -108,7 +113,7 @@ class Resnet(QCNN):
         return inputs + shortcut
 
     def block_layer(self, inputs, filters, bottleneck, block_fn, blocks, strides,
-                                    training, name, data_format):
+                    training, name, data_format, more_blocks=False):
 
         # Bottleneck blocks end with 4x the number of filters as they start with
         filters_out = filters * 4 if bottleneck else filters
@@ -124,6 +129,11 @@ class Resnet(QCNN):
 
         for _ in range(1, blocks):
             inputs = block_fn(inputs, filters, training, None, 1, data_format)
+
+        if more_blocks:
+            with tf.variable_scope("more_blocks"):
+                with tf.variable_scope(name):
+                    inputs = block_fn(inputs, filters, training, None, 1, data_format)
 
         return tf.identity(inputs, name)
 
@@ -157,10 +167,11 @@ class Resnet(QCNN):
         for i, num_blocks in enumerate(self.block_sizes):
             num_filters = self.num_filters * (2**i)
             inputs = self.block_layer(
-                    inputs=inputs, filters=num_filters, bottleneck=self.bottleneck,
-                    block_fn=self.block_fn, blocks=num_blocks,
-                    strides=self.block_strides[i], training=self.training,
-                    name='block_layer{}'.format(i + 1), data_format=self.data_format)
+                inputs=inputs, filters=num_filters, bottleneck=self.bottleneck,
+                block_fn=self.block_fn, blocks=num_blocks,
+                strides=self.block_strides[i], training=self.training,
+                name='block_layer{}'.format(i + 1), data_format=self.data_format,
+                more_blocks=self.more_blocks)
             # if self.reuse == False:
             group_list.append(inputs)
 
@@ -191,3 +202,16 @@ class Resnet(QCNN):
             "group_list": group_list,
             "relu_list": relu_list
         }
+
+    def get_saver(self, load_namescope=None, prepend=None):
+        if self.more_blocks:
+            vars_except_more = [var for var in self.vars if "more_blocks/" not in var.op.name]
+        else:
+            vars_except_more = self.vars
+        var_namescope = self.namescope if not prepend else prepend + "/" + self.namescope
+        if load_namescope is None or load_namescope == var_namescope:
+            saver = tf.train.Saver(vars_except_more, max_to_keep=20)
+        else:
+            var_mapping_dct = {var.op.name.replace(var_namescope + "/", (load_namescope + "/") if load_namescope else ""): var for var in vars_except_more}
+            saver = tf.train.Saver(var_mapping_dct, max_to_keep=20)
+        return saver

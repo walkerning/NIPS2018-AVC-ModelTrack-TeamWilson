@@ -16,9 +16,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--save", "-s", required=True, help="save to path")
 parser.add_argument("--iter-train", action="store_true", default=False)
 parser.add_argument("--mutual-num", default=None, type=int)
+parser.add_argument("--plot-train-acc", default=False, action="store_true")
 args, fnames = parser.parse_known_args()
 
 exists_test = ["normal"]
+if args.plot_train_acc:
+    exists_test.append("train")
 flabels = []
 adv_acc_dct_lst = []
 for fname in fnames:
@@ -33,6 +36,9 @@ for fname in fnames:
     content = open(fname, "r").read().strip().split("Epoch", 1)[1]
     # normal_accs = re.findall("Test normal_adv:[\n\t ]+?loss: [.0-9e]+; accuracy: ([.0-9e]+) %; Mean pixel distance:", content)
     # normal_accs = re.findall("loss: [.0-9e]+; accuracy: ([.0-9e]+) %; Mean pixel distance:", content)
+    if args.plot_train_acc:
+        # FIXME: mutual train acc is not supported now
+        train_accs = re.findall("student accuracy: ([.0-9e]+) %;", content)
     normal_accs = re.findall("loss: [.0-9e]+; accuracy: ([.0-9e]+) %; ", content)
     adv_accs = re.findall("test (.+): acc: ([.0-9e]+);", content)
     adv_acc_dct = {}
@@ -49,6 +55,8 @@ for fname in fnames:
         adv_acc_dct["normal"] = normal_accs
     else:
         adv_acc_dct["normal"] = [float(v) for v in normal_accs]
+        if args.plot_train_acc:
+            adv_acc_dct["train"] = [float(v) for v in train_accs]
     flabels.append(label)
     adv_acc_dct_lst.append(adv_acc_dct)
 
