@@ -71,11 +71,13 @@ class DistillTrainer(Trainer):
         self.stu_x = tf.placeholder(tf.float32, shape=[None, 64, 64, 3], name="stu_x")
         self.labels = tf.placeholder(tf.float32, [None, 200], name="labels")
 
-        self.model_tea = QCNN.create_model(self.FLAGS["teacher"])
-        self.logits = self.model_tea.get_logits(self.x)
+        if self.FLAGS.alpha != 0: # distill
+            self.model_tea = QCNN.create_model(self.FLAGS["teacher"])
+            self.logits = self.model_tea.get_logits(self.x)
+            AvailModels.add(self.model_tea, self.x, self.logits)
+
         self.model_stu = QCNN.create_model(self.FLAGS["model"])
         self.logits_stu = self.model_stu.get_logits(self.stu_x)
-        AvailModels.add(self.model_tea, self.x, self.logits)
         AvailModels.add(self.model_stu, self.stu_x, self.logits_stu)
         if self.FLAGS.use_denoiser:
             AvailModels.add(self.model_stu.inner_model, self.model_stu.denoiser.denoise_output, self.logits_stu)
@@ -89,16 +91,19 @@ class DistillTrainer(Trainer):
         
         # Loss and metrics
         tile_num = tf.shape(self.logits_stu)[0]/batch_size
-        tile_num_tea = tf.shape(self.logits)[0]/batch_size
+        if self.FLAGS.alpha != 0:
+            tile_num_tea = tf.shape(self.logits)[0]/batch_size
 
-        soft_label = tf.nn.softmax(self.logits/self.FLAGS.temperature)
-        soft_logits = self.logits_stu / self.FLAGS.temperature
-        reshape_soft_label = tf.reshape(tf.tile(tf.expand_dims(soft_label, 1), [1, tf.shape(soft_logits)[0]/tf.shape(soft_label)[0], 1]), [-1, 200])
-        ce = tf.nn.softmax_cross_entropy_with_logits(
-            labels=reshape_soft_label,
-            logits=soft_logits,
-            name="distill_ce_loss")
-        self.distillation = tf.reduce_mean(ce)
+            soft_label = tf.nn.softmax(self.logits/self.FLAGS.temperature)
+            soft_logits = self.logits_stu / self.FLAGS.temperature
+            reshape_soft_label = tf.reshape(tf.tile(tf.expand_dims(soft_label, 1), [1, tf.shape(soft_logits)[0]/tf.shape(soft_label)[0], 1]), [-1, 200])
+            ce = tf.nn.softmax_cross_entropy_with_logits(
+                labels=reshape_soft_label,
+                logits=soft_logits,
+                name="distill_ce_loss")
+            self.distillation = tf.reduce_mean(ce)
+        else:
+            self.distillation = tf.constant(0.0)
 
         reshape_labels = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tile_num, 1]), [-1, 200])
         self.original_loss = tf.reduce_mean(
@@ -116,11 +121,14 @@ class DistillTrainer(Trainer):
         self.index_label = tf.argmax(self.labels, -1)
         _tmp = tf.expand_dims(self.index_label, -1)
         reshape_index_label = tf.reshape(tf.tile(_tmp, [1, tile_num]), [-1])
-        reshape_index_label_tea = tf.reshape(tf.tile(_tmp, [1, tile_num_tea]), [-1])
         correct = tf.equal(tf.argmax(self.logits_stu, -1), reshape_index_label)
         self.accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
-        tea_correct = tf.equal(tf.argmax(self.logits, -1), reshape_index_label_tea)
-        self.tea_accuracy = tf.reduce_mean(tf.cast(tea_correct, tf.float32))
+        if self.FLAGS.alpha != 0:
+            reshape_index_label_tea = tf.reshape(tf.tile(_tmp, [1, tile_num_tea]), [-1])
+            tea_correct = tf.equal(tf.argmax(self.logits, -1), reshape_index_label_tea)
+            self.tea_accuracy = tf.reduce_mean(tf.cast(tea_correct, tf.float32))
+        else:
+            self.tea_accuracy = self.accuracy
 
         # Initialize the optimizer
         self.learning_rate = tf.placeholder(tf.float32, shape=[])
@@ -166,6 +174,8 @@ class DistillTrainer(Trainer):
                 gen_time += time.time() - gen_start_time
                 inner_info_v = []
                 run_start_time = time.time()
+                if step == 1 and info_v_epoch.shape[0] != len(adv_xs):
+                    info_v_epoch = np.zeros((len(adv_xs), 5))
                 for adv_x in adv_xs:
                     feed_dict = {
                         self.x: x_v if not self.FLAGS.distill_use_auged else auged_x_v,
@@ -279,7 +289,8 @@ class DistillTrainer(Trainer):
                 sys.exit(1)
             # Load teacher model
             if self.FLAGS.load_file_tea:
-                self.model_tea.load_checkpoint(self.FLAGS.load_file_tea, self.sess, self.FLAGS.load_namescope_tea)
+                if self.FLAGS.alpha != 0:
+                    self.model_tea.load_checkpoint(self.FLAGS.load_file_tea, self.sess, self.FLAGS.load_namescope_tea)
             if not self.FLAGS.load_file_stu:
                 load_namescope_stu = self.FLAGS["teacher"]["namescope"] if self.FLAGS.load_namescope_tea is None else self.FLAGS.load_namescope_tea
                 load_file_stu = self.FLAGS.load_file_tea
@@ -303,13 +314,14 @@ class DistillTrainer(Trainer):
             coord.join(threads)
             sys.exit(0)
 
-        if not self.FLAGS.load_file_tea:
-            print("error: no input file. Must supply teacher model for training.")
+        if self.FLAGS.alpha and not self.FLAGS.load_file_tea or (not self.FLAGS.alpha and not self.FLAGS.load_file_stu):
+            print("error: no input file. Must supply teacher model for training with disstillation; or student model for training without distillation.")
             coord.request_stop()
             coord.join(threads)
             sys.exit(1)
         # Load teacher model
-        self.model_tea.load_checkpoint(self.FLAGS.load_file_tea, self.sess, self.FLAGS.load_namescope_tea)
+        if self.FLAGS.alpha != 0:
+            self.model_tea.load_checkpoint(self.FLAGS.load_file_tea, self.sess, self.FLAGS.load_namescope_tea)
         if not self.FLAGS.load_file_stu:
             load_namescope_stu = self.FLAGS["teacher"]["namescope"] if self.FLAGS.load_namescope_tea is None else self.FLAGS.load_namescope_tea
             load_file_stu = self.FLAGS.load_file_tea
