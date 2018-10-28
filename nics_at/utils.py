@@ -50,6 +50,33 @@ class ExpDecayAdjuster(LrAdjuster):
             self.lr *= self.decay
             log("will decaying lr to {}".format(self.lr))
 
+class CosineLrAdjuster(LrAdjuster):
+    def __init__(self, cfg):
+        self.T_mult = cfg["T_mult"]
+        self.lr_mult = cfg["lr_mult"]
+        self.restart_every = cfg["restart_every"]
+        self.eta_min = cfg["eta_min"]
+        self.start_lr = self.base_lr = cfg["start_lr"]
+        self.epoch = 0
+        self.restarted_at = 0
+
+    def add_multiple_acc(self, *accs):
+        self.add()
+
+    def add(self, *accs):
+        self.epoch += 1
+        if self.epoch - self.restarted_at >= self.restart_every:
+            self.restart()
+
+    def restart(self):
+        log("Restart at epoch: ", self.epoch)
+        self.restart_every = int(self.restart_every * self.T_mult)
+        self.base_lr = self.base_lr * self.lr_mult
+        self.restarted_at = self.epoch
+
+    def get_lr(self):
+        return self.eta_min + (self.base_lr - self.eta_min) * (1 + np.cos(np.pi * (self.epoch - self.restarted_at) / self.restart_every)) / 2
+
 class AccLrAdjuster(LrAdjuster):
     def __init__(self, cfg):
         self.decay_epoch_thre = cfg["decay_epoch_threshold"]
@@ -72,6 +99,7 @@ class AccLrAdjuster(LrAdjuster):
                 self.best_acc = np.zeros(acc.shape)
             self.best_acc_epoch = self.num_epoch
             self.best_acc = np.maximum(acc, self.best_acc)
+        log("accs do not have improvements for {} epochs".format(self.num_epoch - self.best_acc_epoch))
         # if or not to end training
         if self.num_epoch - self.best_acc_epoch > self.end_epoch_thre:
             self.lr = None

@@ -40,60 +40,109 @@ class Dataset(object):
             rarely = lambda aug: iaa.Sometimes(0.1, aug)
             sometimes = lambda aug: iaa.Sometimes(0.25, aug)
             often = lambda aug: iaa.Sometimes(0.5, aug)
-            self.seq = iaa.Sequential([
-                # iaa.Fliplr(0.5),
-                often(iaa.Affine(
-                    scale={"x": (0.9, 1.1), "y": (0.9, 1.1)},
-                    translate_percent={"x": (-0.1, 0.1), "y": (-0.12, 0)},
-                    rotate=(-10, 10),
-                    shear=(-8, 8),
-                    order=[0, 1],
-                    cval=(0, 255),
-                )),
-                iaa.SomeOf((0, 4), [
-                    rarely(
-                        iaa.Superpixels(
-                            p_replace=(0, 0.3),
-                            n_segments=(20, 200)
-                        )
-                    ),
-                    iaa.OneOf([
-                        iaa.GaussianBlur((0, 2.0)),
-                        iaa.AverageBlur(k=(2, 4)),
-                        iaa.MedianBlur(k=(3, 5)),
-                    ]),
-                    iaa.Sharpen(alpha=(0, 0.3), lightness=(0.75, 1.5)),
-                    iaa.Emboss(alpha=(0, 1.0), strength=(0, 0.5)),
-                    rarely(iaa.OneOf([
-                        iaa.EdgeDetect(alpha=(0, 0.3)),
-                        iaa.DirectedEdgeDetect(
-                            alpha=(0, 0.7), direction=(0.0, 1.0)
-                        ),
-                    ])),
-                    iaa.AdditiveGaussianNoise(
-                        loc=0, scale=(0.0, 0.06 * 255), per_channel=0.5
-                    ),
-                    iaa.OneOf([
+            if self.more_augs == "v3":
+                utils.log("v3: only add affine transformation")
+                often = lambda aug: iaa.Sometimes(0.8, aug)
+                self.seq = iaa.Sequential([
+                    often(iaa.Affine(
+                        scale={"x": (0.9, 1.1), "y": (0.9, 1.1)}, # zoom in/out
+                        translate_percent={"x": (-0.1, 0.1), "y": (-0.05, 0.05)}, # translation
+                        rotate=(-15, 15),
+                        shear=(-8, 8),
+                        order=[0, 1], # interpolation order values
+                        cval=(0, 255), # fill value
+                    ))], random_order=True)
+            elif self.more_augs == "v4":
+                utils.log("v4: add affine transformation, dropout, grayscale, blur")
+                often = lambda aug: iaa.Sometimes(0.8, aug)
+                self.seq = iaa.Sequential([
+                    often(iaa.Affine(
+                        scale={"x": (0.9, 1.1), "y": (0.9, 1.1)}, # zoom in/out
+                        translate_percent={"x": (-0.1, 0.1), "y": (-0.05, 0.05)}, # translation
+                        rotate=(-15, 15),
+                        shear=(-8, 8),
+                        order=[0, 1], # interpolation order values
+                        cval=(0, 255), # fill value
+                    )),
+                    sometimes(iaa.OneOf([
                         iaa.Dropout((0.0, 0.05), per_channel=0.5),
                         iaa.CoarseDropout(
-                            (0.03, 0.05), size_percent=(0.01, 0.05),
+                            (0.03, 0.05), size_percent=(0.03, 0.07),
                             per_channel=0.2
+                        )])),
+                    sometimes(iaa.Grayscale(alpha=(0.0, 1.0))),
+                    sometimes(iaa.OneOf([
+                            iaa.GaussianBlur((0, 2.0)),
+                            iaa.AverageBlur(k=3)
+                    ])),
+                ], random_order=True)
+            elif self.more_augs == "v5":
+                utils.log("v5: only add rotation")
+                often = lambda aug: iaa.Sometimes(0.8, aug)
+                self.seq = iaa.Sequential([
+                    often(iaa.Affine(
+                        # scale={"x": (0.9, 1.1), "y": (0.9, 1.1)}, # zoom in/out
+                        # translate_percent={"x": (-0.1, 0.1), "y": (-0.05, 0.05)}, # translation
+                        rotate=(-15, 15),
+                        order=[0, 1], # interpolation order values
+                        # cval=(0, 255), # fill value
+                        cval=0
+                    ))], random_order=True)
+            else:
+                self.seq = iaa.Sequential([
+                    # iaa.Fliplr(0.5),
+                    often(iaa.Affine(
+                        scale={"x": (0.9, 1.1), "y": (0.9, 1.1)}, # zoom in/out
+                        translate_percent={"x": (-0.1, 0.1), "y": (-0.05, 0.05)}, # translation
+                        rotate=(-10, 10),
+                        shear=(-8, 8),
+                        order=[0, 1], # interpolation order values
+                        cval=(0, 255), # fill value
+                    )),
+                    iaa.SomeOf((0, 4), [
+                        rarely(
+                            iaa.Superpixels(
+                                p_replace=(0, 0.3),
+                                n_segments=(20, 200)
+                            )
                         ),
-                    ]),
-                    rarely(iaa.Invert(0.05, per_channel=True)),
-                    often(iaa.Add((-40, 40), per_channel=0.5)),
-                    iaa.Multiply((0.7, 1.3), per_channel=0.5),
-                    iaa.ContrastNormalization((0.5, 2.0), per_channel=0.5),
-                    iaa.Grayscale(alpha=(0.0, 1.0)),
-                    sometimes(iaa.PiecewiseAffine(scale=(0.01, 0.03))),
-                    sometimes(
-                        iaa.ElasticTransformation(alpha=(0.5, 1.5), sigma=0.25)
-                    ),
-        
-                ], random_order=True),
-                iaa.Fliplr(0.5),
-                iaa.AddToHueAndSaturation(value=(-10, 10), per_channel=True)
-            ], random_order=True)  # apply augmenters in random order
+                        iaa.OneOf([
+                            iaa.GaussianBlur((0, 2.0)),
+                            iaa.AverageBlur(k=3),
+                            iaa.MedianBlur(k=3),
+                        ]),
+                        iaa.Sharpen(alpha=(0, 0.3), lightness=(0.75, 1.5)),
+                        # iaa.Emboss(alpha=(0, 1.0), strength=(0, 0.5)),
+                        # rarely(iaa.OneOf([
+                        #     iaa.EdgeDetect(alpha=(0, 0.3)),
+                        #     iaa.DirectedEdgeDetect(
+                        #         alpha=(0, 0.7), direction=(0.0, 1.0)
+                        #     ),
+                        # ])),
+                        iaa.AdditiveGaussianNoise(
+                            loc=0, scale=(0.0, 0.06 * 255), per_channel=0.5
+                        ),
+                        iaa.OneOf([
+                            iaa.Dropout((0.0, 0.05), per_channel=0.5),
+                            iaa.CoarseDropout(
+                                (0.03, 0.05), size_percent=(0.05, 0.05),
+                                per_channel=0.2
+                            ),
+                        ]),
+                        # rarely(iaa.Invert(0.05, per_channel=True)),
+                        # often(iaa.Add((-40, 40), per_channel=0.5)),
+                        # iaa.Multiply((0.7, 1.3), per_channel=0.5),
+                        iaa.ContrastNormalization((0.5, 2.0), per_channel=0.5),
+                        iaa.Grayscale(alpha=(0.0, 1.0)),
+                        sometimes(iaa.PiecewiseAffine(scale=(0.01, 0.03))),
+                        sometimes(
+                            iaa.ElasticTransformation(alpha=(0.5, 1.5), sigma=0.25)
+                        ),
+            
+                    ], random_order=True),
+                    iaa.Fliplr(0.5),
+                    iaa.AddToHueAndSaturation(value=(-10, 10), per_channel=True)
+                ], random_order=True)  # apply augmenters in random order
             def aug(input_):
                 output_ = self.seq.augment_image(input_).astype(np.float32)
                 return output_
@@ -168,17 +217,17 @@ class Dataset(object):
             auged_img = tf.image.random_contrast(auged_img, 0.8, 1.25)
             auged_img = tf.image.random_hue(auged_img, 0.1)
             auged_img = tf.image.random_saturation(auged_img, 0.8, 1.25)
+            if self.more_augs:
+                utils.log("Use more augmentation!")
+                auged_img = tf.py_func(self.more_aug, [tf.cast(auged_img, tf.uint8)], tf.float32)
+                auged_img = tf.clip_by_value(auged_img, 0, 255) # 需要吗?
             if self.aug_saltpepper is not None:
                 p = tf.random_uniform([], minval=self.aug_saltpepper[0], maxval=self.aug_saltpepper[1])
                 u = tf.expand_dims(tf.random_uniform([64, 64], maxval=1.0), axis=-1)
                 salt = tf.cast(u >= 1 - p/2, tf.float32) * 256
                 pepper = - tf.cast(u < p/2, tf.float32) * 256
                 auged_img = tf.clip_by_value(auged_img + salt + pepper, 0, 255)
-            if self.more_augs:
-                utils.log("Use more augmentation!")
-                auged_img = tf.py_func(self.more_aug, [tf.cast(auged_img, tf.uint8)], tf.float32)
-                auged_img = tf.clip_by_value(auged_img, 0, 255) # 需要吗?
-            elif self.aug_gaussian is not None:
+            if self.aug_gaussian is not None and (not self.more_augs or self.more_augs in {"v3", "v4", "v5"}):
                 if isinstance(self.aug_gaussian, (tuple, list)):
                     eps = tf.random_uniform([], minval=self.aug_gaussian[0], maxval=self.aug_gaussian[1])
                 else:
