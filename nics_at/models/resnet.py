@@ -3,7 +3,6 @@ import tensorflow as tf
 
 from nics_at.models.base import QCNN
 
-_BATCH_NORM_DECAY = 0.997
 _BATCH_NORM_EPSILON = 1e-5
 DEFAULT_VERSION = 2
 
@@ -29,6 +28,8 @@ class Resnet(QCNN):
         self.block_strides = [1, 2, 2, 2]
         self.final_size = 512
         self.more_blocks = params.get("more_blocks", False)
+        self.batch_norm_momentum = params.get("batch_norm_momentum", 0.997)
+        print("weight decay: {}; batch norm momentum: {}".format(self.weight_decay, self.batch_norm_momentum))
 
     def batch_norm(self, inputs, training, data_format):
         """Performs a batch normalization using a standard set of parameters."""
@@ -36,7 +37,7 @@ class Resnet(QCNN):
         # https://www.tensorflow.org/performance/performance_guide#common_fused_ops
         return tf.layers.batch_normalization(
                 inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
-                momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
+                momentum=self.batch_norm_momentum, epsilon=_BATCH_NORM_EPSILON, center=True,
                 scale=True, training=training, fused=True)
 
 

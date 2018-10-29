@@ -270,7 +270,7 @@ class MutualTrainer(Trainer):
 
             info_v_epoch /= steps_per_epoch
             duration = time.time() - start_time
-            sec_per_batch = duration / (steps_per_epoch * self.FLAGS.batch_size)
+            sec_per_batch = duration / steps_per_epoch
             utils.log("{}: Epoch {}; {:.3f} sec/batch; {}:\n\t{}"
                   .format(datetime.now(), epoch, sec_per_batch, "" if not utils.PROFILING else "; ".join(["{}: {:.2f} ({:.3f} average) sec".format(k, t, t/num) for k, (num, t) in utils.all_profiled.iteritems()]), "\n\t".join(["Model {}:\n\t\t{}".format(mn, "\n\t\t".join(["ce_loss: {:.3f}; kl_loss: {:.3f}; loss: {:.3f}; acc: {:.3f}".format(*info_every_attack) for info_every_attack in info])) for mn, info in zip(self.namescope_lst, info_v_epoch)])), flush=True)
             # End training batches

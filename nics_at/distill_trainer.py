@@ -41,6 +41,7 @@ class DistillTrainer(Trainer):
             "temperature": 1,
             "at_mode": "attention",
             "train_models": {},
+            "update_per_batch": 1, # this configuration is deprecating...
 
             # Testing
             "test_saltpepper": None,
@@ -56,6 +57,7 @@ class DistillTrainer(Trainer):
             "train_merge_adv": False,
             "split_adv": False,
             "multi_grad_accumulate": False,
+            "random_split_adv": False,
 
             "additional_models": []
         }
@@ -158,7 +160,7 @@ class DistillTrainer(Trainer):
         config.gpu_options.allow_growth = True
         self.sess = tf.Session(config=config)
         [Attack.create_attack(self.sess, a_cfg) for a_cfg in self.FLAGS["available_attacks"]]
-        self.train_attack_gen = AttackGenerator(self.FLAGS["train_models"], merge=self.FLAGS.train_merge_adv, split_adv=self.FLAGS.split_adv)
+        self.train_attack_gen = AttackGenerator(self.FLAGS["train_models"], merge=self.FLAGS.train_merge_adv, split_adv=self.FLAGS.split_adv, random_split_adv=self.FLAGS.random_split_adv)
         self.test_attack_gen = AttackGenerator(self.FLAGS["test_models"], split_adv=self.FLAGS.split_adv)
 
     def train(self):
@@ -214,7 +216,7 @@ class DistillTrainer(Trainer):
             run_time = run_time / steps_per_epoch
             info_v_epoch /= steps_per_epoch
             duration = time.time() - start_time
-            sec_per_batch = duration / (steps_per_epoch * self.FLAGS.batch_size)
+            sec_per_batch = duration / steps_per_epoch
             loss_v_epoch, _, _, acc_stu_epoch, acc_tea_epoch = np.mean(inner_info_v, axis=0)
             utils.log("\r{}: Epoch {}; (average) loss: {:.3f}; (average) student accuracy: {:.2f} %; (average) teacher accuracy: {:.2f} %. {:.3f} sec/batch; gen time: {:.3f} sec/batch; run time: {:.3f} sec/batch; {}"
                       .format(datetime.now(), epoch, loss_v_epoch, acc_stu_epoch * 100, acc_tea_epoch * 100, sec_per_batch, gen_time, run_time, "" if not utils.PROFILING else "; ".join(["{}: {:.2f} ({:.3f} average) sec".format(k, t, t/num) for k, (num, t) in utils.all_profiled.iteritems()])), flush=True)

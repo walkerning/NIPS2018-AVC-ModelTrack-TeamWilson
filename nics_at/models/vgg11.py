@@ -10,6 +10,7 @@ class VGG11(QCNN):
         super(VGG11, self).__init__(namescope, params)
 
     def _get_logits(self, inputs):
+        weight_decay = self.weight_decay
         def conv_relu_pool(input_, index_, filters_, use_pool = True, kernel_size_ = 3, stride_ = 1, name_scope = ""):
             conv_ = tf.layers.conv2d(input_, filters=filters_, kernel_size=(kernel_size_,kernel_size_),
              strides=(stride_,stride_), padding="same", use_bias=False,
@@ -23,6 +24,11 @@ class VGG11(QCNN):
                 return conv_, relu_, pool_
             else:
                 return conv_, relu_
+        _R_MEAN = 123.68
+        _G_MEAN = 116.78
+        _B_MEAN = 103.94
+        _CHANNEL_MEANS = [_R_MEAN, _G_MEAN, _B_MEAN]
+        inputs = inputs - tf.constant(_CHANNEL_MEANS)
         conv1, relu1, pool1 = conv_relu_pool(inputs, 1, 64)
         conv2, relu2, pool2 = conv_relu_pool(pool1, 2, 128)
         conv3_1, relu3_1 = conv_relu_pool(pool2, 3, 256, use_pool=False)
