@@ -58,6 +58,7 @@ class DistillTrainer(Trainer):
             "split_adv": False,
             "multi_grad_accumulate": False,
             "random_split_adv": False,
+            "random_interp": None,
 
             "additional_models": []
         }
@@ -160,8 +161,8 @@ class DistillTrainer(Trainer):
         config.gpu_options.allow_growth = True
         self.sess = tf.Session(config=config)
         [Attack.create_attack(self.sess, a_cfg) for a_cfg in self.FLAGS["available_attacks"]]
-        self.train_attack_gen = AttackGenerator(self.FLAGS["train_models"], merge=self.FLAGS.train_merge_adv, split_adv=self.FLAGS.split_adv, random_split_adv=self.FLAGS.random_split_adv)
-        self.test_attack_gen = AttackGenerator(self.FLAGS["test_models"], split_adv=self.FLAGS.split_adv)
+        self.train_attack_gen = AttackGenerator(self.FLAGS["train_models"], merge=self.FLAGS.train_merge_adv, split_adv=self.FLAGS.split_adv, random_split_adv=self.FLAGS.random_split_adv, random_interp=self.FLAGS.random_interp, name="train")
+        self.test_attack_gen = AttackGenerator(self.FLAGS["test_models"], split_adv=self.FLAGS.split_adv, name="test")
 
     def train(self):
         sess = self.sess

@@ -11,6 +11,7 @@ import foolbox.distances
 import foolbox.attacks
 from foolbox.models import TensorFlowModel
 
+from nics_at import utils
 from nics_at.utils import AvailModels, profiling
 from pgd_variants import MadryEtAl_L2, MadryEtAl_transfer
 cleverhans.attacks.MadryEtAl_L2 = MadryEtAl_L2
@@ -30,15 +31,18 @@ def substitute_argscope(_callable, dct):
         raise Exception("not implemented")
 
 class AttackGenerator(object):
-    def __init__(self, generate_cfg, merge=False, split_adv=False, random_split_adv=False, use_cache=False):
+    def __init__(self, generate_cfg, merge=False, split_adv=False, random_split_adv=False, random_interp=None, use_cache=False, name=""):
+        self.name = name
         self.cfg = generate_cfg
         self.merge = merge # whether or not to merge all adv into 1 array
         self.split_adv = split_adv # whether or not to split adv into multiple batch
         self.random_split_adv = random_split_adv
+        self.random_interp = random_interp # random interpolation of adv examples and normal examples
         self.use_cache = use_cache
         self.batch_cache = {}
         self.epoch = 0
         self.batch = 0
+        utils.log("AttackGenerator {}: random_split_adv: {}; random_interp: {}".format(self.name, self.random_split_adv, self.random_interp))
 
     def set_epoch(self, epoch):
         self.epoch = epoch
@@ -86,6 +90,10 @@ class AttackGenerator(object):
             else:
                 if "__generated__" in key:
                     adv_x = pre_adv_x
+                    if self.random_interp is not None:
+                        min_, max_ = self.random_interp
+                        mult = min_ + np.random.rand(adv_x.shape[0], adv_x.shape[1], 1, 1, 1) * (max_ - min_)
+                        adv_x = np.clip(np.expand_dims(x, 1) * (1-mult) + adv_x * mult, 0, 255)
                     if self.split_adv and not self.random_split_adv:
                         adv_x = list(adv_x.transpose((1, 0, 2, 3, 4)))
                         generated += adv_x
