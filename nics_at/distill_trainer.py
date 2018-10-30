@@ -28,6 +28,7 @@ class DistillTrainer(Trainer):
             # Data gen
             "num_threads": 2,
             "more_augs": False,
+            "use_imgnet1k": False,
 
             # Training
             "distill_use_auged": False, # 一个谜一样的bug

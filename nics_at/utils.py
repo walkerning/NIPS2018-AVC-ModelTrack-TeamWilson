@@ -101,9 +101,9 @@ class AccLrAdjuster(LrAdjuster):
             self.best_acc = np.maximum(acc, self.best_acc)
         log("accs do not have improvements for {} epochs".format(self.num_epoch - self.best_acc_epoch))
         # if or not to end training
-        if self.num_epoch - self.best_acc_epoch > self.end_epoch_thre:
+        if self.num_epoch - self.best_acc_epoch >= self.end_epoch_thre:
             self.lr = None
-        elif self.num_epoch - self.best_acc_epoch > self.decay_epoch_thre:
+        elif self.num_epoch - self.best_acc_epoch >= self.decay_epoch_thre:
             self.lr *= self.decay
             log("will decaying lr to {}".format(self.lr))
 

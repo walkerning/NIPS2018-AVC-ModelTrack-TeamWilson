@@ -22,7 +22,7 @@ import tensorflow as tf
 from nics_at import utils
 
 class Dataset(object):
-    def __init__(self, batch_size, epochs, aug_saltpepper, aug_gaussian, generated_adv=[], num_threads=2, capacity=1024, more_augs=False):
+    def __init__(self, batch_size, epochs, aug_saltpepper, aug_gaussian, generated_adv=[], num_threads=2, capacity=1024, more_augs=False, use_imgnet1k=False):
         self.batch_size = batch_size
         if isinstance(num_threads, int):
             self.num_threads = {"train": num_threads, "val": num_threads}
@@ -36,6 +36,7 @@ class Dataset(object):
         self.generated_adv = generated_adv
         self.generated_adv_num = len(generated_adv)
         self.more_augs = more_augs
+        self.use_imgnet1k = use_imgnet1k
         if self.more_augs:
             rarely = lambda aug: iaa.Sometimes(0.1, aug)
             sometimes = lambda aug: iaa.Sometimes(0.25, aug)
@@ -157,16 +158,25 @@ class Dataset(object):
             for filename in filenames:
                 match = re.search(r'n\d+', filename)
                 label = str(self.label_dict[match.group()])
-                filename_label = [filename, label]
+                filename_label = [filename, label, "0"]
                 filename_label += [os.path.join(adv_cfg["path"], mode, os.path.basename(filename).split(".")[0] + "." + adv_cfg["suffix"]) for adv_cfg in self.generated_adv]
                 filenames_labels.append(tuple(filename_label))
+            if self.use_imgnet1k:
+                filenames = glob.glob(os.path.abspath('./imagenet1k-tinysubset/train/*/*.JPEG'))
+                for filename in filenames:
+                    match = re.search(r'n\d+', filename)
+                    label = str(self.label_dict[match.group()])
+                    filename_label = [filename, label, "1"]
+                    # FIXME: for imgnet1k examples, we do not have time to generate blackbox adversarials
+                    filename_label += [os.path.join(adv_cfg["path"], mode, os.path.basename(filename).split(".")[0] + "." + adv_cfg["suffix"]) for adv_cfg in self.generated_adv] # will not use
+                    filenames_labels.append(tuple(filename_label))
         elif mode == 'val':
             with open('./tiny-imagenet-200/val/val_annotations.txt', 'r') as f:
                 for line in f.readlines():
                     split_line = line.split('\t')
                     filename = './tiny-imagenet-200/val/images/' + split_line[0]
                     label = str(self.label_dict[split_line[1]])
-                    filename_label = [filename, label]
+                    filename_label = [filename, label, "0"]
                     filename_label += [os.path.join(adv_cfg["path"], mode, os.path.basename(filename).split(".")[0] + "." + adv_cfg["suffix"]) for adv_cfg in self.generated_adv]
                     filenames_labels.append(tuple(filename_label))
         setattr(self, mode + "_num", len(filenames_labels))
@@ -207,9 +217,12 @@ class Dataset(object):
         item = filename_q.dequeue()
         filename = item[0]
         label = item[1]
+        is_imgnet1k = tf.cast(tf.string_to_number(item[2]), tf.bool)
         file = tf.read_file(filename)
         img = tf.image.decode_jpeg(file, channels=3)
         img = tf.cast(img, tf.float32)
+        img = tf.cond(is_imgnet1k,
+                      lambda : tf.image.resize_images(img, [64, 64]), lambda: img)
 
         if mode == "train":
             auged_img = tf.image.random_flip_left_right(img)
@@ -241,14 +254,28 @@ class Dataset(object):
         auged_img = tf.random_crop(auged_img, [64, 64, 3])
         label = tf.string_to_number(label, tf.int32)
         label = tf.cast(label, tf.uint8)
-        adv_imgs = []
-        for i in range(self.generated_adv_num):
-            adv_filename = item[i+2]
-            file = tf.read_file(adv_filename)
-            data = tf.decode_raw(file, out_type=tf.uint8)
-            data = tf.reshape(data, (64, 64, 3))
-            adv_imgs.append(tf.cast(data, tf.float32))
-        adv_imgs = tf.reshape(tf.stack(adv_imgs), (self.generated_adv_num, 64, 64, 3))
+        if self.use_imgnet1k:
+            def read_adv():
+                adv_imgs = []
+                for i in range(self.generated_adv_num):
+                    adv_filename = item[i+3]
+                    file = tf.read_file(adv_filename)
+                    data = tf.decode_raw(file, out_type=tf.uint8)
+                    data = tf.reshape(data, (64, 64, 3))
+                    adv_imgs.append(tf.cast(data, tf.float32))
+                adv_imgs = tf.reshape(tf.stack(adv_imgs), (self.generated_adv_num, 64, 64, 3))
+                return adv_imgs
+            adv_imgs = tf.cond(is_imgnet1k,
+                          lambda : tf.reshape(tf.stack([auged_img] * self.generated_adv_num), (self.generated_adv_num, 64, 64, 3)) , read_adv)
+        else:
+            adv_imgs = []
+            for i in range(self.generated_adv_num):
+                adv_filename = item[i+3]
+                file = tf.read_file(adv_filename)
+                data = tf.decode_raw(file, out_type=tf.uint8)
+                data = tf.reshape(data, (64, 64, 3))
+                adv_imgs.append(tf.cast(data, tf.float32))
+            adv_imgs = tf.reshape(tf.stack(adv_imgs), (self.generated_adv_num, 64, 64, 3))
         return [img, auged_img, label, adv_imgs]
     
     

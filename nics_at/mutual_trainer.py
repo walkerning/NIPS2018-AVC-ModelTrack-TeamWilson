@@ -23,12 +23,15 @@ class MutualTrainer(Trainer):
             "aug_mode": "pre",
 
             # Training
-            "distill_use_auged": False,
             "num_threads": 2,
             "more_augs": False,
+            "use_imgnet1k": False,
+
+            "distill_use_auged": False,
             "epochs": 50,
             "batch_size": 100,
             "adjust_lr_acc": None,
+
 
             "alpha": 0.1,
             "beta": 0,
@@ -316,13 +319,15 @@ class MutualTrainer(Trainer):
         add_namescope_lst = [m_cfg["namescope"] for m_cfg in self.FLAGS["additional_models"]]
         if load_files:
             assert len(load_files) == self.mutual_num + len(self.FLAGS.additional_models)
-            for model_vars, v_namescope, l_namescope, l_file in zip(self.model_vars_lst + self.add_model_vars_lst, self.namescope_lst + add_namescope_lst, load_namescopes, load_files):
-                var_mapping_dct = {var.op.name.replace(v_namescope + "/", l_namescope + ("/" if l_namescope else "")): var for var in model_vars}
-                # from tensorflow.python import pywrap_tensorflow
-                # reader = pywrap_tensorflow.NewCheckpointReader(l_file)
-                # var_keys = reader.get_variable_to_shape_map().keys()
-                saver = tf.train.Saver(var_mapping_dct)
-                saver.restore(sess, l_file)
+            for m, l_namescope, l_file in zip(self.model_lst, load_namescopes, load_files):
+                m.load_checkpoint(l_file, self.sess, l_namescope)
+            # for model_vars, v_namescope, l_namescope, l_file in zip(self.model_vars_lst + self.add_model_vars_lst, self.namescope_lst + add_namescope_lst, load_namescopes, load_files):
+            #     var_mapping_dct = {var.op.name.replace(v_namescope + "/", l_namescope + ("/" if l_namescope else "")): var for var in model_vars}
+            #     # from tensorflow.python import pywrap_tensorflow
+            #     # reader = pywrap_tensorflow.NewCheckpointReader(l_file)
+            #     # var_keys = reader.get_variable_to_shape_map().keys()
+            #     saver = tf.train.Saver(var_mapping_dct)
+            #     saver.restore(sess, l_file)
         if self.FLAGS.test_only:
             if self.FLAGS.test_saltpepper is not None:
                 if isinstance(self.FLAGS.test_saltpepper, (tuple, list)):

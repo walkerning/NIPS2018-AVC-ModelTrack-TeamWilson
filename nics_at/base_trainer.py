@@ -33,7 +33,7 @@ class Trainer(object):
         self.sess = None
         self.FLAGS = self._settings(cfg, args)
         self.dataset = Dataset(self.FLAGS.batch_size, self.FLAGS.epochs, self.FLAGS.aug_saltpepper, self.FLAGS.aug_gaussian,
-                               generated_adv=self.FLAGS.generated_adv, num_threads=self.FLAGS.num_threads, more_augs=self.FLAGS.more_augs)
+                               generated_adv=self.FLAGS.generated_adv, num_threads=self.FLAGS.num_threads, more_augs=self.FLAGS.more_augs, use_imgnet1k=self.FLAGS.use_imgnet1k)
 
     @classmethod
     def populate_arguments(cls, parser):
