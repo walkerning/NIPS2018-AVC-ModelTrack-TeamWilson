@@ -53,7 +53,12 @@ class MutualTrainer(Trainer):
             "generated_adv": [],
             "train_models": {},
             "train_merge_adv": False,
+            "split_adv": False,
+            "test_split_adv": False,
+            "random_split_adv": False,
             "random_interp": None,
+            "random_interp_adv": None,
+            "test_random_interp_adv": None,
 
             "additional_models": []
         }
@@ -160,8 +165,9 @@ class MutualTrainer(Trainer):
         config.gpu_options.allow_growth = True
         self.sess = tf.Session(config=config)
         [Attack.create_attack(self.sess, a_cfg) for a_cfg in self.FLAGS["available_attacks"]]
-        self.train_attack_gen = AttackGenerator(self.FLAGS["train_models"], merge=self.FLAGS.train_merge_adv, random_interp=self.FLAGS.random_interp, name="train")
-        self.test_attack_gen = AttackGenerator(self.FLAGS["test_models"], name="test")
+        self.train_attack_gen = AttackGenerator(self.FLAGS["train_models"], merge=self.FLAGS.train_merge_adv, split_adv=self.FLAGS.split_adv, random_split_adv=self.FLAGS.random_split_adv,
+                                                random_interp=self.FLAGS.random_interp, random_interp_adv=self.FLAGS.random_interp_adv, name="train")
+        self.test_attack_gen = AttackGenerator(self.FLAGS["test_models"], split_adv=self.FLAGS.test_split_adv, random_interp_adv=self.FLAGS.test_random_interp_adv, name="test")
 
     def test(self, saltpepper=None, adv=False, name=""):
         sess = self.sess

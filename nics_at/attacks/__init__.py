@@ -31,18 +31,21 @@ def substitute_argscope(_callable, dct):
         raise Exception("not implemented")
 
 class AttackGenerator(object):
-    def __init__(self, generate_cfg, merge=False, split_adv=False, random_split_adv=False, random_interp=None, use_cache=False, name=""):
+    def __init__(self, generate_cfg, merge=False, split_adv=False, random_split_adv=False,
+                 random_interp=None, random_interp_adv=None, use_cache=False, name=""):
         self.name = name
         self.cfg = generate_cfg
         self.merge = merge # whether or not to merge all adv into 1 array
         self.split_adv = split_adv # whether or not to split adv into multiple batch
         self.random_split_adv = random_split_adv
-        self.random_interp = random_interp # random interpolation of adv examples and normal examples
+        self.random_interp = random_interp # random interpolation between adv examples and normal examples
+        self.random_interp_adv = random_interp_adv # random interpolation between adv examples
         self.use_cache = use_cache
         self.batch_cache = {}
         self.epoch = 0
         self.batch = 0
-        utils.log("AttackGenerator {}: random_split_adv: {}; random_interp: {}".format(self.name, self.random_split_adv, self.random_interp))
+        utils.log("AttackGenerator {}: split_adv: {}; random_split_adv: {}; random_interp: {}; random_interp_adv: {}".
+                  format(self.name, self.split_adv, self.random_split_adv, self.random_interp, self.random_interp_adv))
 
     def set_epoch(self, epoch):
         self.epoch = epoch
@@ -101,6 +104,21 @@ class AttackGenerator(object):
                         keys = keys[:-1] + ["{}_split_{}".format(last_key, i) for i in range(len(adv_x))]
                     else:
                         generated.append(adv_x)
+                    if self.random_interp_adv is not None:
+                        # NOTE: now use sample-level interpolation, can try batch-level too, might be more stable?
+                        min_, max_ = self.random_interp_adv
+                        breaks = np.vstack((np.random.rand(pre_adv_x.shape[1]-1, pre_adv_x.shape[0]), np.ones((1, pre_adv_x.shape[0]))))
+                        weights = []
+                        tmp_max = 1
+                        for i in range(pre_adv_x.shape[1]):
+                            w = min_ + breaks[i] * (tmp_max - min_)
+                            weights.append(w)
+                            tmp_max = tmp_max - w
+                        np.random.shuffle(weights) # here weights is of size [len_adv, batch_size]
+                        weights = np.transpose(weights).reshape((pre_adv_x.shape[0], pre_adv_x.shape[1], 1, 1, 1))
+                        additional_adv_x = np.clip(np.sum(weights * pre_adv_x, axis=1), 0, 255)
+                        generated.append(additional_adv_x)
+                        keys.append("random_interp_advs")
                 else:
                     adv_x = Attack.get_attack(a["id"]).generate(x, y)
                     generated.append(adv_x)
