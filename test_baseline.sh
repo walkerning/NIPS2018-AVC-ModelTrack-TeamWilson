@@ -4,6 +4,7 @@ ADDI_NAME=${ADDI_NAME:-none}
 TESTTYPE=${TESTTYPE:-transfer}
 TEST_RESNET=${TEST_RESNET:-1}
 TEST_INCEPTION=${TEST_INCEPTION:-1}
+TEST_INCEPTION_RES=${TEST_INCEPTION_RES:-0}
 TEST_VGG=${TEST_VGG:-0}
 gpu=${GPU:-0}
 #tmp_model_cfg=${TMP_MODEL_CFG:-$(tempfile)}
@@ -39,6 +40,9 @@ if [[ ${TEST_VGG} -gt 0 ]]; then
     FMODEL_MODEL_CFG=cfgs/vgg11.yaml python main.py ~/yml_files/labels.yml ${addi_arg} --gpu ${gpu} -t ${TESTTYPE} --save  results/${test_name}/genbyvgg 2>&1 | tee results/${test_name}/${TESTTYPE}_vgg.log
 fi
 
+if [[ ${TEST_INCEPTION_RES} -gt 0 ]]; then
+    FMODEL_MODEL_CFG=cfgs/inception_res_v2.yaml python main.py ~/yml_files/labels.yml ${addi_arg} --gpu ${gpu} -t ${TESTTYPE} --save  results/${test_name}/genbyinceptionresv2 2>&1 | tee results/${test_name}/${TESTTYPE}_inceptionresv2.log
+fi
 
 # 单独出去: 当前模型生成的白盒样本存下来, 攻击resnet18的transfer情况
 # 单独出去: 测试当前模型攻击resnet18的情况
