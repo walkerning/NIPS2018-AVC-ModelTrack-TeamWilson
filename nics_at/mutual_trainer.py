@@ -55,6 +55,7 @@ class MutualTrainer(Trainer):
             "train_merge_adv": False,
             "split_adv": False,
             "test_split_adv": False,
+            "multi_grad_accumulate": False,
             "random_split_adv": False,
             "random_interp": None,
             "random_interp_adv": None,
@@ -127,7 +128,10 @@ class MutualTrainer(Trainer):
         loss_lst = []
         kl_loss_lst = []
         train_step_lst = []
-        self.learning_rate = tf.placeholder(tf.float32, shape=[])
+        if self.FLAGS.multi_grad_accumulate:
+            self.accum_ops_lst = []
+            self.zero_agrad_op_lst = []
+        self.learning_rate = tf.placeholder(tf.float32, shape=[], name="lr")
         self.lr_adjuster = LrAdjuster.create_adjuster(self.FLAGS.adjust_lr_acc)
         for i in range(self.mutual_num):
             name_scope = namescope_lst[i]
@@ -140,10 +144,22 @@ class MutualTrainer(Trainer):
             loss_lst.append(loss)
             optimizer = tf.train.MomentumOptimizer(self.learning_rate, momentum=0.9)
             update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, name_scope)
-            with tf.control_dependencies(update_ops):
-                grads_and_var = optimizer.compute_gradients(loss, var_list=model_vars_lst[i])
-                train_step = optimizer.apply_gradients(grads_and_var)
+            if self.FLAGS.multi_grad_accumulate:
+                tvs = model_lst[i].trainable_vars
+                accum_vars = [tf.Variable(tf.zeros_like(tv), trainable=False) for tv in tvs]
+                grads_and_vars = optimizer.compute_gradients(loss, var_list=tvs)
+                zero_agrad_op = [tv.assign(tf.zeros_like(tv)) for tv in accum_vars]
+                with tf.control_dependencies(update_ops):
+                    accum_ops = [accum_vars[i].assign_add(gv[0]) for i, gv in enumerate(grads_and_vars)]
+                train_step = optimizer.apply_gradients([(accum_vars[i], gv[1]) for i, gv in enumerate(grads_and_vars)])
                 train_step_lst.append(train_step)
+                self.accum_ops_lst.append(accum_ops)
+                self.zero_agrad_op_lst.append(zero_agrad_op)
+            else:
+                with tf.control_dependencies(update_ops):
+                    grads_and_vars = optimizer.compute_gradients(loss, var_list=model_vars_lst[i])
+                    train_step = optimizer.apply_gradients(grads_and_vars)
+                    train_step_lst.append(train_step)
 
         self.input_holder_lst = tuple(input_holder_lst)
         self.model_lst = tuple(model_lst)
@@ -159,6 +175,9 @@ class MutualTrainer(Trainer):
         self.kl_loss_lst = tuple(kl_loss_lst)
         self.loss_lst = tuple(loss_lst)
         self.train_step_lst = tuple(train_step_lst)
+        if self.FLAGS.multi_grad_accumulate:
+            self.accum_ops_lst = tuple(self.accum_ops_lst)
+            self.zero_agrad_op_lst = tuple(self.zero_agrad_op_lst)
         self.namescope_lst = namescope_lst
 
         config = tf.ConfigProto()
@@ -257,22 +276,32 @@ class MutualTrainer(Trainer):
                 info_lst_v = []
                 for mi in range(self.mutual_num):
                     _, adv_xs = self.train_attack_gen.generate_for_model(auged_x_v, y_v, self.namescope_lst[mi], adv_x_v)
-                    if len(adv_xs) == 0: # no adv is generated
-                        adv_xs.append(normal_x)
-                    if len(adv_xs) < self.FLAGS.update_per_batch:
-                        print("warning: update_per_batch is set to {}; only generated {} examples".format(self.FLAGS.update_per_batch, len(adv_xs)))
-                        adv_xs += [normal_x] * (self.FLAGS.update_per_batch - len(adv_xs))
+                    if step == 1 and mi == 0 and info_v_epoch.shape[1] != len(adv_xs):
+                        info_v_epoch = np.zeros((self.mutual_num, len(adv_xs), 4))
+                    # if len(adv_xs) == 0: # no adv is generated
+                    #     adv_xs.append(normal_x)
+                    # if len(adv_xs) < self.FLAGS.update_per_batch:
+                    #     print("warning: update_per_batch is set to {}; only generated {} examples".format(self.FLAGS.update_per_batch, len(adv_xs)))
+                    #     adv_xs += [normal_x] * (self.FLAGS.update_per_batch - len(adv_xs))
                     inner_info_v = []
+                    actual_lr = now_lr / len(adv_xs)
+                    if self.FLAGS.multi_grad_accumulate:
+                        sess.run(self.zero_agrad_op_lst[mi])
                     for adv_x in adv_xs:
                         feed_dict = {
                             self.input_holder_lst[mi]: adv_x,
                             self.prob_placeholder_lst: normal_prob_lst_v,
                             self.labels: y_v,
                             self.training_lst[mi]: True,
-                            self.learning_rate: now_lr
+                            self.learning_rate: actual_lr
                         }
-                        info_v, _ = sess.run([[self.ce_loss_lst[mi], self.kl_loss_lst[mi], self.loss_lst[mi], self.accuracy_lst[mi]], self.train_step_lst[mi]], feed_dict=feed_dict)
+                        if not self.FLAGS.multi_grad_accumulate:
+                            info_v, _ = sess.run([[self.ce_loss_lst[mi], self.kl_loss_lst[mi], self.loss_lst[mi], self.accuracy_lst[mi]], self.train_step_lst[mi]], feed_dict=feed_dict)
+                        else:
+                            info_v, _ = sess.run([[self.ce_loss_lst[mi], self.kl_loss_lst[mi], self.loss_lst[mi], self.accuracy_lst[mi]], self.accum_ops_lst[mi]], feed_dict=feed_dict)
                         inner_info_v.append(info_v) # append each adv example info
+                    if self.FLAGS.multi_grad_accumulate:
+                        sess.run(self.train_step_lst[mi], feed_dict={self.learning_rate: actual_lr})
                     info_lst_v.append(inner_info_v) # append each model info
                 info_v_epoch += info_lst_v
                 if step % self.FLAGS.print_every == 0:
