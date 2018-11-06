@@ -6,15 +6,24 @@ from foolbox.models import CaffeModel
 
 class Caffe(BaseModel):
     FRAMEWORK = "caffe"
-    def __init__(self, proto, weights, caffe_path=None, log_level=2):
+    def __init__(self, proto, weights, caffe_path=None, log_level=2, use_cpu=False):
         # no configuration now
         super(Caffe, self).__init__()
         self.caffe_path = caffe_path
+        self.use_cpu = use_cpu
         if caffe_path:
             import sys
             sys.path.insert(0, caffe_path)
         os.environ["GLOG_minloglevel"] = str(log_level)
         import caffe
+        if use_cpu:
+            caffe.set_mode_cpu()
+        else:
+            gpu = os.environ.get("CUDA_VISIBLE_DEVICES", "0")
+            caffe.set_mode_gpu()
+            caffe.set_device(int(gpu))
+            print("caffe use gpu: ", gpu)
+            
         # Check if force_backward is set to true! important!
         from caffe.proto import caffe_pb2
         from google.protobuf import text_format

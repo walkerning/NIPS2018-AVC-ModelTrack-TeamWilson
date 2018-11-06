@@ -8,3 +8,4 @@ models:
       proto: ./checkpoints/cifar10/caffe/attack.prototxt
       weights: ./checkpoints/cifar10/caffe/resnet20_iter_64000.caffemodel
       caffe_path: ./misc/caffe/python
+      # use_cpu: false
