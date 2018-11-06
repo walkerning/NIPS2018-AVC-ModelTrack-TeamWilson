@@ -1,0 +1,22 @@
+models:
+  - weight: 1
+    type: resnet
+    load_name_space: stu_
+    cfg:
+      name_space: __random__
+      resnet_size: 18
+      bottleneck: false
+      num_classes: 200
+      num_filters: 64
+      kernel_size: 3
+      conv_stride: 1
+      first_pool_size: 0
+      first_pool_stride: 2
+      second_pool_size: 7
+      second_pool_stride: 1
+      block_sizes: [2, 2, 2, 2]
+      block_strides: [1, 2, 2, 2]
+      final_size: 512
+      version: 2
+      data_format:
+    checkpoint: new_test_models/m6/3
