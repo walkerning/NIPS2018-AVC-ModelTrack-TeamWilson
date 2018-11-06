@@ -42,26 +42,26 @@ mkdir -p ${result_dir}/${test_name}
 
 # resnet transfer  attack
 if [[ ${TEST_RESNET} -gt 0 ]]; then
-    FMODEL_MODEL_CFG=cfgs/resnet18.yaml python benchmark/bm_docker.py ${label_f} ${impath_arg} ${addi_arg} --gpu ${gpu} -t ${TESTTYPE}  --save  ${result_dir}/${test_name}/ 2>&1 | tee ${result_dir}/${test_name}/${TESTTYPE}.log
+    FMODEL_MODEL_CFG=cfgs/resnet18.yaml python benchmark/bm.py ${label_f} ${impath_arg} ${addi_arg} --gpu ${gpu} -t ${TESTTYPE}  --save  ${result_dir}/${test_name}/ 2>&1 | tee ${result_dir}/${test_name}/${TESTTYPE}.log
 fi
 # inception transfer  attack
 if [[ ${TEST_INCEPTION} -gt 0 ]]; then
-    FMODEL_MODEL_CFG=cfgs/inception.yaml python benchmark/bm_docker.py ${label_f} ${impath_arg} ${addi_arg} --gpu ${gpu} -t ${TESTTYPE} --save  ${result_dir}/${test_name}/genbyinception 2>&1 | tee ${result_dir}/${test_name}/${TESTTYPE}_inception.log
+    FMODEL_MODEL_CFG=cfgs/inception.yaml python benchmark/bm.py ${label_f} ${impath_arg} ${addi_arg} --gpu ${gpu} -t ${TESTTYPE} --save  ${result_dir}/${test_name}/genbyinception 2>&1 | tee ${result_dir}/${test_name}/${TESTTYPE}_inception.log
 fi
 
 # vgg transfer attack
 if [[ ${TEST_VGG} -gt 0 ]]; then
-    FMODEL_MODEL_CFG=cfgs/vgg11.yaml python benchmark/bm_docker.py ${label_f} ${impath_arg} ${addi_arg} --gpu ${gpu} -t ${TESTTYPE} --save  ${result_dir}/${test_name}/genbyvgg 2>&1 | tee ${result_dir}/${test_name}/${TESTTYPE}_vgg.log
+    FMODEL_MODEL_CFG=cfgs/vgg11.yaml python benchmark/bm.py ${label_f} ${impath_arg} ${addi_arg} --gpu ${gpu} -t ${TESTTYPE} --save  ${result_dir}/${test_name}/genbyvgg 2>&1 | tee ${result_dir}/${test_name}/${TESTTYPE}_vgg.log
 fi
 
 # inception-res-v2 transfer attack
 if [[ ${TEST_INCEPTION_RES} -gt 0 ]]; then
-    FMODEL_MODEL_CFG=cfgs/inception_res_v2.yaml python benchmark/bm_docker.py ${label_f} ${impath_arg} ${addi_arg} --gpu ${gpu} -t ${TESTTYPE} --save  ${result_dir}/${test_name}/genbyinceptionresv2 2>&1 | tee ${result_dir}/${test_name}/${TESTTYPE}_inceptionresv2.log
+    FMODEL_MODEL_CFG=cfgs/inception_res_v2.yaml python benchmark/bm.py ${label_f} ${impath_arg} ${addi_arg} --gpu ${gpu} -t ${TESTTYPE} --save  ${result_dir}/${test_name}/genbyinceptionresv2 2>&1 | tee ${result_dir}/${test_name}/${TESTTYPE}_inceptionresv2.log
 fi
 
 # boundary attack
 if [[ ${TEST_BOUNDARY} -gt 0 ]]; then
-    python benchmark/bm_docker.py ${label_f} ${impath_arg} ${addi_arg} --gpu ${gpu} -t boundary --save  ${result_dir}/${test_name}/ 2>&1 | tee ${result_dir}/${test_name}/boundary.log
+    python benchmark/bm.py ${label_f} ${impath_arg} ${addi_arg} --gpu ${gpu} -t boundary --save  ${result_dir}/${test_name}/ 2>&1 | tee ${result_dir}/${test_name}/boundary.log
 fi
 
 

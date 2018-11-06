@@ -32,6 +32,9 @@ class EnsembleModel(DifferentiableModel):
         assert self.multi_type in {"vote", "mean"}
         print("ensemble type : {};  number of model: {} ".format(self.ensemble_type, len(self.models)))
 
+    def backward(self, gradient, image): # for foolbox 1.7.0 compatability
+        return np.sum(self.weights.reshape((len(self.models), 1, 1, 1)) * [model.backward(gradient, image) for model in self.models], axis=0)
+
     def batch_predictions(self, images):
         if self.use_resolution is not None:
             preds = []

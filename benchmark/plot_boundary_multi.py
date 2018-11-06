@@ -3,21 +3,13 @@ from __future__ import print_function
 
 import os
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import yaml
 import argparse
 import numpy as np
 
-from fmodel import create_fmodel
-# adv training带来的变化
-# TODO(1): ~14:00 **观察梯度的变化**. 统计一下在test500 inception, vgg11, resnet, resnet_adv的gradient方向是不是接近正交? adv training之后, 提督空间会比较扭曲吗? (画一下梯度场?)
-# TODO(2): ~14:30和之后 找一下代码, 没有代码自己写一下 **基于正交adversarial 方向集合的减小做分析** 用GAAS找一下正交方向集. 看看这个正交adversarial directions里经过adv training有哪些没有了, 其中的一部分方向的boundary是不是通过adv training推的很远? 其中这些方向上可以transfer的方向的boundary被推进的比例大不大)
-# TODO(3): **在gradient方向做boundary搜索, 看adv trained导致的各个关键方向的boundary距离变化**, 已经试了一下, 发现adv training还是有点用的...即使是在inception的grad方向;
-#    - [x] ~13:00 用inception做resnet baseline的transfer攻击的adv方向是不是没有推boundary, 这个adv方向和inception自己的grad以及resnet baseline／resnet adv差距有多大?inception做renset adv trained的transfer攻击的adv方向比起做resnet trained的adv方向是不是没啥改变?  改变比想象中大, 还是推进了一些的，虽然没有推进的resnet gradient方向那么多，主要是因为adv训练之后normal acc降低了，所以看起来总体分数没变，其实在保持正确的样本上确实推动了...  
-#    - [ ] ~13:20 找一个其他类别的正常样本看看benigned决策面有没有发生比较大的变化...
-#    - [x] 试一下对多个数据点跑一下看看
-#    - [ ] Tramer(1704.003453) GAAS说对抗训练没有displace boundary significantly... 因为其对模型boundary的推进太小了, 平均来说比一般adv 扰动的norm要小很多? (这个指的应该是transferable的扰动吧? 白盒扰动感觉可太小了...也不transferable). 也来统计看看transfer攻击生成的samples的距离...以及在transfer生成的adv samples方向上的决策面情况
-# TODO(4): **白盒扰动是不是在hole里?** 画一下白盒adv扰动direction + 一个random正交方向的的点图, 看看决策面情况?
-
+from utils import create_fmodel_cfg
 
 parser = argparse.ArgumentParser()
 parser.add_argument("label_path")
@@ -32,16 +24,6 @@ args = parser.parse_args()
 os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 log_file = open(args.save_log, "a")
 
-def create_fmodel_(cfg_path):
-    _old = os.environ.get("FMODEL_MODEL_CFG", None)
-    os.environ["FMODEL_MODEL_CFG"] = cfg_path
-    fmodel = create_fmodel()
-    if _old is None:
-        os.environ.pop("FMODEL_MODEL_CFG")
-    else:
-        os.environ["FMODEL_MODEL_CFG"] = _old
-    return fmodel
-
 models = []
 names = []
 use_grad = []
@@ -50,7 +32,7 @@ args.use_grad = [os.path.abspath(m) for m in args.use_grad]
 assert len(set(args.use_grad).difference(args.model)) == 0
 
 for cfg in args.model:
-    models.append(create_fmodel_(cfg))
+    models.append(create_fmodel_cfg(cfg))
     name = os.path.basename(cfg).split(".")[0]
     names.append(name)
     if cfg in args.use_grad:
@@ -149,15 +131,3 @@ np.savez(open(args.save, "wb"), **{
     "all_adv_dists": all_adv_dists
 })
 
-
-"""
-在resnet baseline和resnetadv错误的图片上, 讲道理直接
-是不是因为resnet adv 在normal examples的正确率变低了, 所以导致median/mean看起来差不多... 感觉最后还是没有错分的正确样本上的攻击好像距离确实变好了.
-
-在inception, resnet, resnetadv都正确的222张图片
-inception iterative transfer attack on resnet baseline:
-median pixel distance: 4.169938195661555, mean pixel distance: 5.243404504250328
-
-inception iterative transfer attack on resnet adv:
-median pixel distance: 7.245576947226279, mean pixel distance: 7.762126723783608
-"""

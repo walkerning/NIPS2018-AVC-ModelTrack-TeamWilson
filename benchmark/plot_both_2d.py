@@ -3,6 +3,8 @@ from __future__ import print_function
 
 import os
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import yaml
 import argparse
 import numpy as np
@@ -12,17 +14,8 @@ from mpl_toolkits.mplot3d import Axes3D
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 
-from fmodel import create_fmodel
+from utils import create_fmodel_cfg
 
-def create_fmodel_(cfg_path):
-    _old = os.environ.get("FMODEL_MODEL_CFG", None)
-    os.environ["FMODEL_MODEL_CFG"] = cfg_path
-    fmodel = create_fmodel()
-    if _old is None:
-        os.environ.pop("FMODEL_MODEL_CFG")
-    else:
-        os.environ["FMODEL_MODEL_CFG"] = _old
-    return fmodel
 
 parser = argparse.ArgumentParser()
 parser.add_argument("test_name", help="result_dir, 应该反映有哪些模型在里面")
@@ -50,7 +43,7 @@ model_cfgs = args.model
 
 model_names = [os.path.basename(cfg).split(".")[0] for cfg in model_cfgs]
 _model_names_dct = {n:i for i, n in enumerate(model_names)}
-models = [create_fmodel_(cfg) for cfg in model_cfgs]
+models = [create_fmodel_cfg(cfg) for cfg in model_cfgs]
 
 _name_sub = [
     ("iterative_transfer", "it"),
