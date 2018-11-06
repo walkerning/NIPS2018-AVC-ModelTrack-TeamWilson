@@ -1,0 +1,10 @@
+models:
+  - weight: 1
+    type: caffe
+    output_blob_name: fc
+    bounds: [0, 255]
+    preprocessing: [128, 128]
+    cfg:
+      proto: ./checkpoints/cifar10/caffe/attack.prototxt
+      weights: ./checkpoints/cifar10/caffe/resnet20_iter_64000.caffemodel
+      caffe_path: ./misc/caffe/python
