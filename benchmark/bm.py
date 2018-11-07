@@ -14,9 +14,10 @@ from adversarial_vision_challenge import load_model
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import *
+import attacks
 from attacks import *
 
-avail_attacks = ["gaussian", "saltnpepper", "boundary", "transfer", "iterative_transfer", "pgd_transfer", "pgd_005_transfer", "pgd_03_001_40_re_transfer", "pgd_03_001_40_bs_transfer", "l2i_01_002_10_bs_transfer", "l2i_01_002_10_nobs_transfer", "l2i_03_005_10_nobs_transfer", "l2i_05_01_10_nobs_transfer", "l2i_05_02_5_nobs_transfer"]
+avail_attacks = [n.rsplit("_", 1)[0] for n in attacks.__all__]
 bms = {n: globals()[n + "_attack"] for n in avail_attacks}
 
 def main(reader, types, save, backward_cfg=None, forward_cfg=None, verbose=False, addi_name=None):
