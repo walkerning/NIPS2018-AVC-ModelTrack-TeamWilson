@@ -43,6 +43,8 @@ class DistillTrainer(Trainer):
             "at_mode": "attention",
             "train_models": {},
             "update_per_batch": 1, # this configuration is deprecating...
+            "distill_self": False,
+            "distill_loss_type": "crossentropy",
 
             # Testing
             "test_saltpepper": None,
@@ -68,6 +70,7 @@ class DistillTrainer(Trainer):
         }
     def __init__(self, args, cfg):
         super(DistillTrainer, self).__init__(args, cfg)
+        assert self.FLAGS.distill_loss_type in {"crossentropy", "gaussian"}
 
     def init(self):
         batch_size = self.FLAGS.batch_size # default to 128
@@ -79,16 +82,20 @@ class DistillTrainer(Trainer):
         self.stu_x = tf.placeholder(tf.float32, shape=[None, 64, 64, 3], name="stu_x")
         self.labels = tf.placeholder(tf.float32, [None, 200], name="labels")
 
-        if self.FLAGS.alpha != 0: # distill
-            self.model_tea = QCNN.create_model(self.FLAGS["teacher"])
-            self.logits = self.model_tea.get_logits(self.x)
-            AvailModels.add(self.model_tea, self.x, self.logits)
-
         self.model_stu = QCNN.create_model(self.FLAGS["model"])
         self.logits_stu = self.model_stu.get_logits(self.stu_x)
         AvailModels.add(self.model_stu, self.stu_x, self.logits_stu)
         if self.FLAGS.use_denoiser:
             AvailModels.add(self.model_stu.inner_model, self.model_stu.denoiser.denoise_output, self.logits_stu)
+
+        if self.FLAGS.alpha != 0: # distill
+            if not self.FLAGS.distill_self:
+                self.model_tea = QCNN.create_model(self.FLAGS["teacher"])
+                self.logits = self.model_tea.get_logits(self.x)
+                AvailModels.add(self.model_tea, self.x, self.logits)
+            else:
+                self.model_tea = self.model_stu
+                self.logits = tf.stop_gradient(self.model_tea.get_logits(self.x))
 
         trainable_variables = self.model_stu.trainable_vars
         tf.get_default_graph().clear_collection("trainable_variables")
@@ -105,10 +112,13 @@ class DistillTrainer(Trainer):
             soft_label = tf.nn.softmax(self.logits/self.FLAGS.temperature)
             soft_logits = self.logits_stu / self.FLAGS.temperature
             reshape_soft_label = tf.reshape(tf.tile(tf.expand_dims(soft_label, 1), [1, tf.shape(soft_logits)[0]/tf.shape(soft_label)[0], 1]), [-1, 200])
-            ce = tf.nn.softmax_cross_entropy_with_logits(
-                labels=reshape_soft_label,
-                logits=soft_logits,
-                name="distill_ce_loss")
+            if self.FLAGS.distill_loss_type == "gaussian":
+                ce = tf.reduce_sum((tf.nn.softmax(soft_label) - tf.nn.softmax(soft_logits))**2, axis=-1)
+            else:
+                ce = tf.nn.softmax_cross_entropy_with_logits(
+                    labels=reshape_soft_label,
+                    logits=soft_logits,
+                    name="distill_ce_loss")
             self.distillation = tf.reduce_mean(ce)
         else:
             self.distillation = tf.constant(0.0)
@@ -342,13 +352,13 @@ class DistillTrainer(Trainer):
             coord.join(threads)
             sys.exit(0)
 
-        if self.FLAGS.alpha and not self.FLAGS.load_file_tea or (not self.FLAGS.alpha and not self.FLAGS.load_file_stu):
-            print("error: no input file. Must supply teacher model for training with disstillation; or student model for training without distillation.")
+        if ((not self.FLAGS.alpha or self.FLAGS.distill_self) and not self.FLAGS.load_file_stu) or ((self.FLAGS.alpha and not self.FLAGS.distill_self) and not self.FLAGS.load_file_tea):
+            print("error: no input file. Must supply teacher model for training with disstillation; or student model for training without distillation or distill self.")
             coord.request_stop()
             coord.join(threads)
             sys.exit(1)
         # Load teacher model
-        if self.FLAGS.alpha != 0:
+        if self.FLAGS.alpha != 0 and not self.FLAGS.distill_self:
             self.model_tea.load_checkpoint(self.FLAGS.load_file_tea, self.sess, self.FLAGS.load_namescope_tea)
         if not self.FLAGS.load_file_stu:
             load_namescope_stu = self.FLAGS["teacher"]["namescope"] if self.FLAGS.load_namescope_tea is None else self.FLAGS.load_namescope_tea
