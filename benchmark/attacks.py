@@ -8,7 +8,8 @@ __all__ = [
     "pgd_03_001_40_re_transfer_attack", "pgd_03_001_40_bs_transfer_attack",
     "l2i_01_002_10_bs_transfer_attack", "l2i_01_002_10_nobs_transfer_attack",
     "l2i_03_005_10_nobs_transfer_attack", "l2i_05_01_10_nobs_transfer_attack",
-    "l2i_05_02_5_nobs_transfer_attack"
+    "l2i_05_02_5_nobs_transfer_attack",
+    "l2i_05_005_10_nobs_transfer_attack"
 ]
 
 def cw_l2_transfer_attack(model, image, label, verbose=False):
@@ -60,6 +61,11 @@ def l2i_03_005_10_nobs_transfer_attack(model, image, label, verbose=False):
     criterion = foolbox.criteria.Misclassification()
     attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
     return attack(image, label, epsilon=0.3, stepsize=0.05, iterations=10, binary_search=False)
+
+def l2i_05_005_10_nobs_transfer_attack(model, image, label, verbose=False):
+    criterion = foolbox.criteria.Misclassification()
+    attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
+    return attack(image, label, epsilon=0.5, stepsize=0.05, iterations=10, binary_search=False)
 
 def l2i_05_01_10_nobs_transfer_attack(model, image, label, verbose=False):
     criterion = foolbox.criteria.Misclassification()
