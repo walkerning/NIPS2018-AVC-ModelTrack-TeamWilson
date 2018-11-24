@@ -33,7 +33,8 @@ def substitute_argscope(_callable, dct):
 
 class AttackGenerator(object):
     def __init__(self, generate_cfg, merge=False, split_adv=False, random_split_adv=False,
-                 random_interp=None, random_interp_adv=None, use_cache=False, name=""):
+                 random_interp=None, random_interp_adv=None, use_cache=False, 
+                 mixup_alpha=1.0, name=""):
         self.name = name
         self.cfg = generate_cfg
         self.merge = merge # whether or not to merge all adv into 1 array
@@ -41,6 +42,7 @@ class AttackGenerator(object):
         self.random_split_adv = random_split_adv
         self.random_interp = random_interp # random interpolation between adv examples and normal examples
         self.random_interp_adv = random_interp_adv # random interpolation between adv examples
+        self.mixup_alpha = mixup_alpha
         self.use_cache = use_cache
         self.batch_cache = {}
         self.epoch = 0
@@ -71,16 +73,40 @@ class AttackGenerator(object):
         cfg = self.cfg[mid]
         attacks = self.get_attacks(cfg)
         generated = []
+        ys = []
         keys = []
+        batch_size = x.shape[0]
+        mixup_x = None
+        mixup_y = None
         for a in attacks:
-            if a["id"] is None:
-                adv_x = x
-                generated.append(adv_x)
+            normal_x = x
+            normal_y = y
+            if a.get("mixup", False): # pre-mixup normal x,y before attack
+                # FIXME: for now, only mixup auged normal examples, not generated black-box adv examples; 
+                #      if black-box adv examples need mixup, maybe this functionality should be moved into AttackGenerator,
+                #      together with interp_adv or interp which generate examples that interpolate between the adv examples and the normal example of the same data point.
+                # NOTE: now, sample-level interpolation, can try batch-level too; only pre-mixup, not post-pixup now
+                if mixup_x is None and mixup_y is None: # not cached mixup_x, mixup_y
+                    # calculate mixup_x and mixup_y
+                    weights = np.random.beta(self.mixup_alpha, self.mixup_alpha, batch_size)
+                    x_weights = weights.reshape((batch_size, 1, 1, 1))
+                    y_weights = weights.reshape((batch_size, 1))
+                    mixup_inds = np.random.permutation(batch_size)
+                    x_1, x_2 = normal_x, normal_x[mixup_inds]
+                    mixup_x = x_1 * x_weights + x_2 * (1 - x_weights)
+                    y_1, y_2 = normal_y, normal_y[mixup_inds]
+                    mixup_y = y_1 * y_weights + y_2 * (1 - y_weights)
+                normal_x = mixup_x
+                normal_y = mixup_y
+            if a["id"] is None: # normal
+                adv_x = normal_x
                 keys.append(a.get("gid", "normal"))
+                generated.append(adv_x)
+                ys.append(y)
                 continue
             key = a.get("gid", a["id"] + "-".join(["{}_{}".format(k, v) for k, v in sorted(a.get("attack_params", {}).items(), key=lambda pair: pair[0])]))
             keys.append(key)
-            if self.use_cache:
+            if self.use_cache: # FIXME: this code is not usable
                 if key in self.batch_cache:
                     generated.append(self.batch_cache[key])
                 else:
@@ -88,10 +114,10 @@ class AttackGenerator(object):
                     if "__generated__" in key:
                         adv_x = pre_adv_x
                     else:
-                        adv_x = Attack.get_attack(a["id"]).generate(x, y)
+                        adv_x = Attack.get_attack(a["id"]).generate(normal_x, normal_y)
                     self.batch_cache[key] = adv_x
                     generated.append(adv_x)
-            else:
+            else: # not self.use_cache
                 if "__generated__" in key:
                     adv_x = pre_adv_x
                     if self.random_interp is not None:
@@ -103,8 +129,10 @@ class AttackGenerator(object):
                         generated += adv_x
                         last_key = keys[-1]
                         keys = keys[:-1] + ["{}_split_{}".format(last_key, i) for i in range(len(adv_x))]
+                        ys = ys+ [y] * len(adv_x)
                     else:
                         generated.append(adv_x)
+                        ys.append(np.tile(np.expand_dims(y, 1), (1, adv_x.shape[1], 1)))
                     if self.random_interp_adv is not None:
                         # NOTE: now use sample-level interpolation, can try batch-level too, might be more stable?
                         min_, max_ = self.random_interp_adv
@@ -119,25 +147,33 @@ class AttackGenerator(object):
                         weights = np.transpose(weights).reshape((pre_adv_x.shape[0], pre_adv_x.shape[1], 1, 1, 1))
                         additional_adv_x = np.clip(np.sum(weights * pre_adv_x, axis=1), 0, 255)
                         generated.append(additional_adv_x)
+                        ys.append(y)
                         keys.append("random_interp_advs")
-                else:
-                    adv_x = Attack.get_attack(a["id"]).generate(x, y)
+                else: # if __generated__ not in key
+                    adv_x = Attack.get_attack(a["id"]).generate(normal_x, normal_y)
                     generated.append(adv_x)
+                    ys.append(normal_y)
         if self.random_split_adv:
             generated = [np.expand_dims(g, 1) if len(g.shape) == 4 else g for g in generated]
             total = np.concatenate(generated, axis=1)
+            ys = [np.expand_dims(s_y, 1) if len(s_y.shape) == 2 else s_y for s_y in ys]
+            total_y = np.concatenate(ys, axis=1)
             num_split = total.shape[1]
             index = np.tile(np.arange(num_split)[np.newaxis], (x.shape[0], 1))
             [np.random.shuffle(_ind) for _ind in index]
             generated = [total[range(x.shape[0]), index[:,i]] for i in range(num_split)]
+            ys = [total_y[range(x.shape[0]), index[:,i]] for i in range(num_split)]
             keys = ["random-split-{}".format(i) for i in range(num_split)]
         if self.merge:
             generated = [np.expand_dims(g, 1) if len(g.shape) == 4 else g for g in generated]
             generated = [np.concatenate(generated, axis=1)]
+            ys = [np.expand_dims(s_y, 1) if len(s_y.shape) == 2 else s_y for s_y in ys]
+            ys = [np.concatenate(ys, axis=1)]
             keys = ["merge-" + "-".join(keys)]
         # reshape into [-1, 64, 64, 3]
         generated = [g.reshape([-1] + list(g.shape[-3:])) for g in generated]
-        return keys, generated
+        ys = [s_y.reshape([-1, y.shape[-1]]) for s_y in ys]
+        return keys, generated, ys
 
     def epoch_mod(self, modn, leftn):
         return self.epoch % modn == leftn

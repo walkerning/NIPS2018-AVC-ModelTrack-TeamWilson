@@ -29,6 +29,7 @@ class DistillTrainer(Trainer):
             "num_threads": 2,
             "more_augs": False,
             "use_imgnet1k": False,
+            "mixup_alpha": 1.0,
 
             # Training
             "distill_use_auged": False, # 一个谜一样的bug
@@ -105,9 +106,11 @@ class DistillTrainer(Trainer):
         self.training_stu = self.model_stu.get_training_status()
         
         # Loss and metrics
-        tile_num = tf.shape(self.logits_stu)[0]/batch_size
+        # tile_num = tf.shape(self.logits_stu)[0]/batch_size
+        tile_num = tf.shape(self.logits_stu)[0]/tf.shape(self.labels)[0]
         if self.FLAGS.alpha != 0:
-            tile_num_tea = tf.shape(self.logits)[0]/batch_size
+            # tile_num_tea = tf.shape(self.logits)[0]/batch_size
+            tile_num_tea = tf.shape(self.logits)[0]/tf.shape(self.labels)[0]
 
             soft_label = tf.nn.softmax(self.logits/self.FLAGS.temperature)
             soft_logits = self.logits_stu / self.FLAGS.temperature
@@ -176,7 +179,7 @@ class DistillTrainer(Trainer):
         self.sess = tf.Session(config=config)
         [Attack.create_attack(self.sess, a_cfg) for a_cfg in self.FLAGS["available_attacks"]]
         self.train_attack_gen = AttackGenerator(self.FLAGS["train_models"], merge=self.FLAGS.train_merge_adv, split_adv=self.FLAGS.split_adv, random_split_adv=self.FLAGS.random_split_adv,
-                                                random_interp=self.FLAGS.random_interp, random_interp_adv=self.FLAGS.random_interp_adv, name="train")
+                                                random_interp=self.FLAGS.random_interp, random_interp_adv=self.FLAGS.random_interp_adv, mixup_alpha=self.FLAGS.mixup_alpha, name="train")
         self.test_attack_gen = AttackGenerator(self.FLAGS["test_models"], split_adv=self.FLAGS.test_split_adv, random_interp_adv=self.FLAGS.test_random_interp_adv, name="test")
 
     def train(self):
@@ -200,7 +203,7 @@ class DistillTrainer(Trainer):
                 self.train_attack_gen.new_batch()
                 x_v, auged_x_v, y_v, adv_x_v = sess.run([self.imgs_t, self.auged_imgs_t, self.labels_t, self.adv_imgs_t])
                 gen_start_time = time.time()
-                _, adv_xs = self.train_attack_gen.generate_for_model(auged_x_v, y_v, self.FLAGS.model["namescope"], adv_x_v)
+                _, adv_xs, ys = self.train_attack_gen.generate_for_model(auged_x_v, y_v, self.FLAGS.model["namescope"], adv_x_v)
                 gen_time += time.time() - gen_start_time
                 inner_info_v = []
                 run_start_time = time.time()
@@ -209,12 +212,13 @@ class DistillTrainer(Trainer):
                 actual_lr = now_lr / len(adv_xs)
                 if self.FLAGS.multi_grad_accumulate:
                     sess.run(self.zero_agrad_op)
-                for adv_x in adv_xs:
+                for adv_x, s_y in zip(adv_xs, ys):
                     feed_dict = {
                         self.x: x_v if not self.FLAGS.distill_use_auged else auged_x_v,
                         self.stu_x: adv_x,
                         self.training_stu: True,
-                        self.labels: y_v,
+                        # self.labels: y_v,
+                        self.labels: s_y,
                         self.learning_rate: actual_lr
                     }
                     if not self.FLAGS.multi_grad_accumulate:
@@ -282,7 +286,7 @@ class DistillTrainer(Trainer):
             tea_acc_v_epoch += tea_acc_v
             # test adv
             if adv:
-                test_ids, adv_xs = self.test_attack_gen.generate_for_model(auged_x_v, y_v, "stu_", adv_x_v)
+                test_ids, adv_xs, _ = self.test_attack_gen.generate_for_model(auged_x_v, y_v, "stu_", adv_x_v)
                 for test_id, adv_x in zip(test_ids, adv_xs):
                     acc_v, tea_acc_v, loss_v = sess.run([self.accuracy, self.tea_accuracy, self.original_loss], feed_dict={
                         self.stu_x: adv_x,

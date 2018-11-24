@@ -26,6 +26,7 @@ class MutualTrainer(Trainer):
             "num_threads": 2,
             "more_augs": False,
             "use_imgnet1k": False,
+            "mixup_alpha": 1.0,
 
             "distill_use_auged": False,
             "epochs": 50,
@@ -94,7 +95,8 @@ class MutualTrainer(Trainer):
             training = model.get_training_status()
             logits = model.get_logits(x)
             prob = tf.nn.softmax(logits)
-            reshape_labels = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tf.shape(logits)[0] / batch_size, 1]), [-1, 200])
+            # reshape_labels = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tf.shape(logits)[0] / batch_size, 1]), [-1, 200])
+            reshape_labels = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tf.shape(logits)[0] / tf.shape(self.labels)[0], 1]), [-1, 200])
             ce_loss = tf.reduce_mean(
                 tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=logits))
 
@@ -184,9 +186,13 @@ class MutualTrainer(Trainer):
         config.gpu_options.allow_growth = True
         self.sess = tf.Session(config=config)
         [Attack.create_attack(self.sess, a_cfg) for a_cfg in self.FLAGS["available_attacks"]]
-        self.train_attack_gen = AttackGenerator(self.FLAGS["train_models"], merge=self.FLAGS.train_merge_adv, split_adv=self.FLAGS.split_adv, random_split_adv=self.FLAGS.random_split_adv,
-                                                random_interp=self.FLAGS.random_interp, random_interp_adv=self.FLAGS.random_interp_adv, name="train")
-        self.test_attack_gen = AttackGenerator(self.FLAGS["test_models"], split_adv=self.FLAGS.test_split_adv, random_interp_adv=self.FLAGS.test_random_interp_adv, name="test")
+        self.train_attack_gen = AttackGenerator(self.FLAGS["train_models"], merge=self.FLAGS.train_merge_adv,
+                                                split_adv=self.FLAGS.split_adv, random_split_adv=self.FLAGS.random_split_adv,
+                                                random_interp=self.FLAGS.random_interp, random_interp_adv=self.FLAGS.random_interp_adv,
+                                                mixup_alpha=self.FLAGS.mixup_alpha, name="train")
+        self.test_attack_gen = AttackGenerator(self.FLAGS["test_models"],
+                                               split_adv=self.FLAGS.test_split_adv, random_interp_adv=self.FLAGS.test_random_interp_adv,
+                                               name="test")
 
     def test(self, saltpepper=None, adv=False, name=""):
         sess = self.sess
@@ -219,7 +225,7 @@ class MutualTrainer(Trainer):
             # test adv
             if adv:
                 for mi in range(self.mutual_num):
-                    test_ids, adv_xs = self.test_attack_gen.generate_for_model(auged_x_v, y_v, self.namescope_lst[mi], adv_x_v)
+                    test_ids, adv_xs, _ = self.test_attack_gen.generate_for_model(auged_x_v, y_v, self.namescope_lst[mi], adv_x_v)
                     for test_id, adv_x in zip(test_ids, adv_xs):
                         acc_v, ce_loss_v = sess.run([self.accuracy_lst[mi], self.ce_loss_lst[mi]], feed_dict={
                             self.input_holder_lst[mi]: adv_x,
@@ -275,7 +281,12 @@ class MutualTrainer(Trainer):
                 })
                 info_lst_v = []
                 for mi in range(self.mutual_num):
-                    _, adv_xs = self.train_attack_gen.generate_for_model(auged_x_v, y_v, self.namescope_lst[mi], adv_x_v)
+                    # **FIXME**: using mutual trainer with mixup might not be so correct now; 
+                    # mixuped auged/adv should use the prob of mixuped auged/non-auged normal to guide; 
+                    # but black-box-generated do not support mixup now, so must use the prob of ori auged/non-auged normal to guide...
+                    # 1. support black-box-mixup and maybe the beta distribution should encourage sparsity more? beta(1,1) is so flat, maybe the black-box will not work that well....
+                    # 2. feed-forward to the prob using both mixed-up and non mixed-up, for mixedup data(normal/whitebox) and non-mixed up data(blackbox) respectively... this will further slow down the mutual trainer...
+                    _, adv_xs, ys = self.train_attack_gen.generate_for_model(auged_x_v, y_v, self.namescope_lst[mi], adv_x_v)
                     if step == 1 and mi == 0 and info_v_epoch.shape[1] != len(adv_xs):
                         info_v_epoch = np.zeros((self.mutual_num, len(adv_xs), 4))
                     # if len(adv_xs) == 0: # no adv is generated
@@ -287,11 +298,12 @@ class MutualTrainer(Trainer):
                     actual_lr = now_lr / len(adv_xs)
                     if self.FLAGS.multi_grad_accumulate:
                         sess.run(self.zero_agrad_op_lst[mi])
-                    for adv_x in adv_xs:
+                    for adv_x, s_y in zip(adv_xs, ys):
                         feed_dict = {
                             self.input_holder_lst[mi]: adv_x,
                             self.prob_placeholder_lst: normal_prob_lst_v,
-                            self.labels: y_v,
+                            # self.labels: y_v,
+                            self.labels: s_y,
                             self.training_lst[mi]: True,
                             self.learning_rate: actual_lr
                         }
