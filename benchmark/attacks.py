@@ -3,19 +3,28 @@ import foolbox
 
 __all__ = [
     "cw_l2_transfer_attack",
+    "cw_l2_attack",
     "gaussian_attack", "saltnpepper_attack", "boundary_attack", "transfer_attack",
     "iterative_transfer_attack", "pgd_transfer_attack", "pgd_005_transfer_attack",
     "pgd_03_001_40_re_transfer_attack", "pgd_03_001_40_bs_transfer_attack",
     "l2i_01_002_10_bs_transfer_attack", "l2i_01_002_10_nobs_transfer_attack",
     "l2i_03_005_10_nobs_transfer_attack", "l2i_05_01_10_nobs_transfer_attack",
     "l2i_05_02_5_nobs_transfer_attack",
-    "l2i_05_005_10_nobs_transfer_attack"
+    "l2i_05_005_10_nobs_transfer_attack",
+    "aug_brightness_attack",
+    "aug_huesat_attack",
+    "aug_flip_attack",
+    "aug_contrast_attack",
+    "aug_gaussian_attack",
+    "aug_nothing_attack"
 ]
 
 def cw_l2_transfer_attack(model, image, label, verbose=False):
     criterion = foolbox.criteria.Misclassification()
     attack = foolbox.attacks.CarliniWagnerL2Attack(model, criterion)
-    return attack(image, label)
+    return attack(image, label, max_iterations=500)
+
+cw_l2_attack = cw_l2_transfer_attack
 
 def pgd_03_001_40_re_transfer_attack(model, image, label, verbose=False):
     criterion = foolbox.criteria.Misclassification()
@@ -125,3 +134,45 @@ def boundary_attack(model, image, label, verbose=False):
         attack = foolbox.attacks.BoundaryAttack(model, criterion)
         return attack(image, label, iterations=45, max_directions=10,
                       tune_batch_size=False, starting_point=init_adversarial, verbose=verbose)
+
+
+def aug_contrast_attack(model, image, label, verbose=False):
+    from imgaug import augmenters as iaa
+    im = np.clip(iaa.ContrastNormalization((0.8, 1.25), per_channel=True).augment_image(image), 0, 255)
+    after_pred = int(np.argmax(model.predictions(im)))
+    print("contrast: (0.8,1.25); True label; before aug label; after; :", label, np.argmax(model.predictions(image)), after_pred)
+    return im, after_pred != label
+
+def aug_brightness_attack(model, image, label, verbose=False):
+    from imgaug import augmenters as iaa
+    im = np.clip(iaa.Add((-30, 30), per_channel=True).augment_image(image), 0, 255)
+    after_pred = int(np.argmax(model.predictions(im)))
+    print("brightness: (-30, 30); True label; before aug label; after; :", label, np.argmax(model.predictions(image)), after_pred)
+    return im, after_pred != label
+
+def aug_huesat_attack(model, image, label, verbose=False):
+    from imgaug import augmenters as iaa
+    im = np.clip(iaa.AddToHueAndSaturation(value=(-10, 10), per_channel=True).augment_image(image), 0,255)
+    # im = iaa.AddToHueAndSaturation(value=(-30, 30), per_channel=True).augment_image(image)
+    after_pred = int(np.argmax(model.predictions(im)))
+    print("huesat: (-10,10): True label; before aug label; after; :", label, np.argmax(model.predictions(image)), after_pred)
+    return im, after_pred != label
+
+def aug_flip_attack(model, image, label, verbose=False):
+    from imgaug import augmenters as iaa
+    im = iaa.Fliplr(1).augment_image(image)
+    after_pred = int(np.argmax(model.predictions(im)))
+    print("flip; True label; before aug label; after; :", label, np.argmax(model.predictions(image)), after_pred)
+    return im, after_pred != label
+
+def aug_gaussian_attack(model, image, label, verbose=False):
+    from imgaug import augmenters as iaa
+    # im = iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.08*255), per_channel=True).augment_image(image)
+    im = np.clip(iaa.AdditiveGaussianNoise(loc=0, scale=0.08*255, per_channel=True).augment_image(image), 0, 255)
+    after_pred = int(np.argmax(model.predictions(im)))
+    print("gaussian noise: 0.08*255; True label; before aug label; after; :", label, np.argmax(model.predictions(image)), after_pred)
+    return im, after_pred != label
+
+def aug_nothing_attack(model, image, label, verbose=False): # only for adv_pttern test
+    im = np.zeros(image.shape)
+    return im, int(np.argmax(model.predictions(im))) != label

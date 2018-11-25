@@ -1,0 +1,18 @@
+image_path: /home/foxfi/tiny-imagenet-200/train/n02124075/images/
+label_file: /home/foxfi/tiny-imagenet-200/label_files/train_cls_0_head10.yml
+other_type: bin
+image_type: img
+directs:
+  - direct_name: baseline_on_m1_m4
+    vertical_name: resnet_on_m4
+    another_name: resnet_on_m1
+    vertical: /home/eva_share/foxfi/nips2018/data/resnet_on_mutual/train/
+    another: /home/eva_share/foxfi/nips2018/data/resnet_on_submit3/train/
+    size: "adjust"
+    step: "auto"
+    im_size_max: 50
+    max_ratio: 2
+    # size: "adjust" # 2-element list of [vertical l2 dist, horizontal l2 dist] or "adjust"(two direction to max coordinate); or "adjust_max"(keep height and width the same, use the maximum one of the two); 
+    # step: "auto" # 2-element list of [vertical step, horizontal step]; one element of step; or "auto". when set to "auto", must set im_size_max(will set the vertical/horizontal step to the same value, which keep the longer side of output image the same with im_size_max)
+    # im_size_max: 50 # maximum output image size, avoid the program to be too slow
+    # max_ratio: 2 # maximum aspect ratio, avoid the output image to be too thin/fat
