@@ -203,16 +203,3 @@ class Resnet(QCNN):
             "group_list": group_list,
             "relu_list": relu_list
         }
-
-    def get_saver(self, load_namescope=None, prepend=None):
-        if self.more_blocks:
-            vars_except_more = [var for var in self.vars if "more_blocks/" not in var.op.name]
-        else:
-            vars_except_more = self.vars
-        var_namescope = self.namescope if not prepend else prepend + "/" + self.namescope
-        if load_namescope is None or load_namescope == var_namescope:
-            saver = tf.train.Saver(vars_except_more, max_to_keep=20)
-        else:
-            var_mapping_dct = {var.op.name.replace(var_namescope + "/", (load_namescope + "/") if load_namescope else ""): var for var in vars_except_more}
-            saver = tf.train.Saver(var_mapping_dct, max_to_keep=20)
-        return saver

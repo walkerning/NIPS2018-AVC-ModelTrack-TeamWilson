@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import random
+import contextlib
 from functools import wraps
 import numpy as np
 
@@ -25,15 +26,40 @@ class AvailModels(object):
         return cls.registry[mid][1:]
 
 class LrAdjuster(object):
-    @classmethod
-    def create_adjuster(cls, cfg):
-        return globals()[cfg.get("type", "ExpDecay") + "Adjuster"](cfg)
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.adjust_type = cfg.get("adjust_type", "mult")
+        assert self.adjust_type in {"mult", "add"}
 
+    @classmethod
+    def create_adjuster(cls, cfg, name="learning_rate"):
+        ins = globals()[cfg.get("type", "ExpDecay") + "Adjuster"](cfg)
+        ins.name = name        
+        return ins
+
+    def set_status(self, best_acc=None, best_epoch=None, lr=None):
+        if best_acc is not None:
+            self.best_acc = best_acc
+        if best_epoch is not None:
+            self.best_acc_epoch = best_epoch
+        if lr is not None:
+            self.lr = lr
+            
     def get_lr(self):
         return self.lr
 
+    def adjust(self):
+        if self.adjust_type == "mult":
+            self.lr *= self.decay
+        elif self.adjust_type == "add":
+            self.lr += self.decay
+        self.lr = min(max(self.lr, self.cfg.get("min", -np.inf)), self.cfg.get("max", np.inf))
+        log("will decaying {} to {}".format(self.name, self.lr))
+
 class ExpDecayAdjuster(LrAdjuster):
     def __init__(self, cfg):
+        super(ExpDecayAdjuster, self).__init__(cfg)
+
         self.decay_every = cfg.get("decay_every", None)
         self.boundaries = cfg.get("boundaries", [])
         assert self.decay_every or self.boundaries
@@ -47,11 +73,12 @@ class ExpDecayAdjuster(LrAdjuster):
     def add(self, *accs):
         self.epoch += 1
         if (self.decay_every and self.epoch % self.decay_every == 0) or (self.boundaries and self.epoch in self.boundaries):
-            self.lr *= self.decay
-            log("will decaying lr to {}".format(self.lr))
+            self.adjust()
 
 class CosineLrAdjuster(LrAdjuster):
+    # CosineLrAdjuster will not call LrAdjuster.adjust, as it's a different adjust method
     def __init__(self, cfg):
+        super(CosineLrAdjuster, self).__init__(cfg)
         self.T_mult = cfg["T_mult"]
         self.lr_mult = cfg["lr_mult"]
         self.restart_every = cfg["restart_every"]
@@ -79,6 +106,7 @@ class CosineLrAdjuster(LrAdjuster):
 
 class AccLrAdjuster(LrAdjuster):
     def __init__(self, cfg):
+        super(AccLrAdjuster, self).__init__(cfg)
         self.decay_epoch_thre = cfg["decay_epoch_threshold"]
         self.end_epoch_thre = cfg["end_epoch_threshold"]
         self.lr = cfg["start_lr"]
@@ -88,24 +116,34 @@ class AccLrAdjuster(LrAdjuster):
         self.best_acc_epoch = 0
         self.best_acc = None
         self.accs = []
+        self.improve_criterion = cfg.get("improve_criterion", "any")
+        log("improve criterion: {}".format(self.improve_criterion))
+
+    def is_improve(self, acc):
+        if self.improve_criterion == "any":
+            return np.any(acc > self.best_acc)
+        elif self.improve_criterion == "all":
+            return np.all(acc > self.best_acc)
+        else:
+            assert isinstance(self.improve_criterion, (float, int))
+            return np.mean(acc - self.best_acc) > self.improve_criterion
 
     def add_multiple_acc(self, *acc):
         self.num_epoch += 1
         acc = np.array(acc)
         self.accs.append(acc)
         # if np.all(acc > self.best_acc):
-        if self.best_acc is None or np.any(acc > self.best_acc):
+        if self.best_acc is None or self.is_improve(acc):
             if self.best_acc is None:
                 self.best_acc = np.zeros(acc.shape)
             self.best_acc_epoch = self.num_epoch
-            self.best_acc = np.maximum(acc, self.best_acc)
+        self.best_acc = np.maximum(acc, self.best_acc)
         log("accs do not have improvements for {} epochs".format(self.num_epoch - self.best_acc_epoch))
         # if or not to end training
-        if self.num_epoch - self.best_acc_epoch >= self.end_epoch_thre:
+        if self.end_epoch_thre and self.num_epoch - self.best_acc_epoch >= self.end_epoch_thre:
             self.lr = None
         elif self.num_epoch - self.best_acc_epoch >= self.decay_epoch_thre:
-            self.lr *= self.decay
-            log("will decaying lr to {}".format(self.lr))
+            self.adjust()
 
     def add(self, acc):
         self.num_epoch += 1
@@ -117,8 +155,7 @@ class AccLrAdjuster(LrAdjuster):
         if self.num_epoch - self.best_acc_epoch > self.end_epoch_thre:
             self.lr = None
         elif self.num_epoch - self.best_acc_epoch > self.decay_epoch_thre:
-            self.lr *= self.decay
-            log("will decaying lr to {}".format(self.lr))
+            self.adjust()
 
 def get_log_func(log_file):
     def log(*args, **kwargs):
@@ -157,3 +194,11 @@ def get_tensor_dependencies(tensor):
         dependencies.update(get_tensor_dependencies(sub_op))
     return dependencies
 
+def get_schedule_value(schedule, epoch, step, steps_per_epoch):
+    if isinstance(schedule, (float, int)):
+        return schedule
+    if schedule.get("type") == "add":
+        v = schedule["start"] + epoch // schedule["every"] * schedule["step"]
+    elif schedule.get("type") == "mult":
+        v = schedule["start"] * schedule["step"] ** (epoch // schedule["every"])
+    return min(max(v, schedule.get("min", np.inf)), schedule.get("max", np.inf))

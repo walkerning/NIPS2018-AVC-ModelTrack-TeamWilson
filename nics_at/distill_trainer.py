@@ -12,7 +12,7 @@ import tensorflow as tf
 
 from models import QCNN
 import utils
-from utils import AvailModels, LrAdjuster
+from utils import AvailModels, LrAdjuster, get_schedule_value
 from attacks import Attack, AttackGenerator
 from base_trainer import settings, Trainer
 
@@ -46,6 +46,7 @@ class DistillTrainer(Trainer):
             "update_per_batch": 1, # this configuration is deprecating...
             "distill_self": False,
             "distill_loss_type": "crossentropy",
+            "relu_thresh_schedule": None,
 
             # Testing
             "test_saltpepper": None,
@@ -174,6 +175,10 @@ class DistillTrainer(Trainer):
                 self.grads_and_var = optimizer.compute_gradients(self.loss)
                 self.train_step = optimizer.apply_gradients(self.grads_and_var)
 
+        # Initialize relu thrshold schedule adjuster
+        if self.FLAGS.relu_thresh_schedule is not None:
+            self.relu_thresh_adjuster = LrAdjuster.create_adjuster(self.FLAGS.relu_thresh_schedule, name="relu_thresh")
+
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
         self.sess = tf.Session(config=config)
@@ -185,6 +190,8 @@ class DistillTrainer(Trainer):
     def train(self):
         sess = self.sess
         steps_per_epoch = self.dataset.train_num // self.FLAGS.batch_size
+        if self.FLAGS.relu_thresh_schedule is not None:
+            relu_thresh_v = self.FLAGS.relu_thresh_schedule["start_lr"]
         for epoch in range(1, self.FLAGS.epochs+1):
             self.train_attack_gen.new_epoch()
             start_time = time.time()
@@ -195,6 +202,14 @@ class DistillTrainer(Trainer):
                 return
             else:
                 utils.log("Lr: ", now_lr)
+
+            if self.FLAGS.relu_thresh_schedule is not None:
+                new_relu_thresh_v = self.relu_thresh_adjuster.get_lr()
+                sess.run(tf.assign(self.model_stu.relu_thresh, relu_thresh_v)) # assign new relu_thresh_v when every train epoch start
+                if not new_relu_thresh_v == relu_thresh_v:
+                    accs_after_adjust = self.test(adv=True, name="test ajudst relu_thresh to {}".format(new_relu_thresh_v))
+                    self.relu_thresh_adjuster.set_status(best_acc=accs_after_adjust, best_epoch=epoch-1)
+                relu_thresh_v = new_relu_thresh_v
 
             # Train batches
             gen_time = 0
@@ -240,13 +255,14 @@ class DistillTrainer(Trainer):
             loss_v_epoch, _, _, acc_stu_epoch, acc_tea_epoch = np.mean(inner_info_v, axis=0)
             utils.log("\r{}: Epoch {}; (average) loss: {:.3f}; (average) student accuracy: {:.2f} %; (average) teacher accuracy: {:.2f} %. {:.3f} sec/batch; gen time: {:.3f} sec/batch; run time: {:.3f} sec/batch; {}"
                       .format(datetime.now(), epoch, loss_v_epoch, acc_stu_epoch * 100, acc_tea_epoch * 100, sec_per_batch, gen_time, run_time, "" if not utils.PROFILING else "; ".join(["{}: {:.2f} ({:.3f} average) sec".format(k, t, t/num) for k, (num, t) in utils.all_profiled.iteritems()])), flush=True)
-                  
             # End training batches
 
             # Test on the validation set
             if epoch % self.FLAGS.test_frequency == 0:
                 test_accs = self.test(adv=True, name="normal_adv")
                 self.lr_adjuster.add_multiple_acc(test_accs)
+                if self.FLAGS.relu_thresh_schedule is not None:
+                    self.relu_thresh_adjuster.add_multiple_acc(test_accs)
                 if self.FLAGS.train_dir:
                     if epoch % self.FLAGS.save_every == 0:
                         save_path = os.path.join(self.FLAGS.train_dir, str(epoch))
@@ -341,9 +357,9 @@ class DistillTrainer(Trainer):
                 load_file_stu = self.FLAGS.load_file_stu
             # Load student model
             if self.FLAGS.use_denoiser:
-                self.model_stu.load_checkpoint([self.FLAGS.load_file_den, load_file_stu], self.sess, [self.FLAGS.load_namescope_den, load_namescope_stu])
+                self.model_stu.load_checkpoint([self.FLAGS.load_file_den, load_file_stu], self.sess, [self.FLAGS.load_namescope_den, load_namescope_stu], exclude_pattern=self.FLAGS.load_exclude)
             else:
-                self.model_stu.load_checkpoint(load_file_stu, self.sess, load_namescope_stu)
+                self.model_stu.load_checkpoint(load_file_stu, self.sess, load_namescope_stu, exclude_pattern=self.FLAGS.load_exclude)
             # Testing
             self.test(adv=True)
             if self.FLAGS.test_saltpepper is not None:
@@ -372,11 +388,14 @@ class DistillTrainer(Trainer):
             load_file_stu = self.FLAGS.load_file_stu
         # Load student model
         if self.FLAGS.use_denoiser:
-            self.model_stu.load_checkpoint([self.FLAGS.load_file_den, load_file_stu], self.sess, [self.FLAGS.load_namescope_den, load_namescope_stu])
+            self.model_stu.load_checkpoint([self.FLAGS.load_file_den, load_file_stu], self.sess, [self.FLAGS.load_namescope_den, load_namescope_stu], exclude_pattern=self.FLAGS.load_exclude)
         else:
-            self.model_stu.load_checkpoint(load_file_stu, self.sess, load_namescope_stu)
+            self.model_stu.load_checkpoint(load_file_stu, self.sess, load_namescope_stu, exclude_pattern=self.FLAGS.load_exclude)
         # Testing
         if not self.FLAGS.no_init_test:
+            # assign this threshold value to model_stu.relu_thresh variable for initial test
+            if self.FLAGS.relu_thresh_schedule is not None: 
+                sess.run(tf.assign(self.model_stu.relu_thresh, self.FLAGS.relu_thresh_schedule["start_lr"]))
             self.test(adv=True, name="loaded_teacher_copy")
         # Training
         utils.log("Start training...")
@@ -395,6 +414,9 @@ class DistillTrainer(Trainer):
                             help="The namescope of the student model")
         parser.add_argument("--load-namescope-tea", type=str, default=None,
                             help="The namescope of the teacher model")
+
+        parser.add_argument("--load-exclude", metavar="PATTERN", action="append", default=[],
+                            help="Exclude variables container PATTERN while loading from checkpoint")
 
         parser.add_argument("--use-denoiser", action="store_true", default=False)
         parser.add_argument("--load-file-den", type=str, default=None,

@@ -47,6 +47,18 @@ class QCNN(Model):
         self._trainable_vars = []
         self._save_saver = None
 
+        # Parse patch_relu config
+        patch_relu = params.get("patch_relu", None)
+        self.patch_relu = None
+        if patch_relu is not None:
+            self.relu_thresh = None
+            with tf.variable_scope(self.namescope):
+                self.relu_thresh = tf.get_variable("relu_thresh", shape=[], dtype=tf.float32, initializer=tf.zeros_initializer(), trainable=False)
+            from nics_at.tf_utils import get_adaptive_relu
+            assert patch_relu in {"thresh", "backthrough_thresh"}
+            self.patch_relu = get_adaptive_relu(self.relu_thresh, back_through=patch_relu=="backthrough_thresh")
+            self._vars.append(self.relu_thresh)
+
     @property
     def trainable_vars(self):
         return self._trainable_vars
@@ -76,7 +88,13 @@ class QCNN(Model):
             if not self.test_only:
                 _before_t_vars = tf.trainable_variables()
         with tf.variable_scope(self.namescope, reuse=self.reuse):
-            res = self._get_logits(inputs)
+            if self.patch_relu is not None: # patch tf.nn.relu to another relu func
+                _backup_relu = tf.nn.relu
+                tf.nn.relu = self.patch_relu
+                res = self._get_logits(inputs)
+                tf.nn.relu = _backup_relu
+            else:
+                res = self._get_logits(inputs)
         [setattr(self, n, v) for n, v in res.iteritems()]
         self.cached[inputs] = res
         _after_vars = tf.global_variables()
@@ -96,12 +114,13 @@ class QCNN(Model):
     def get_probs(self, x):
         return tf.nn.softmax(self.get_logits(x))
 
-    def get_saver(self, load_namescope=None, prepend=None):
+    def get_saver(self, load_namescope=None, prepend=None, exclude_pattern=[]):
+        _vars = [v for v in self.vars if all(p not in v.op.name for p in exclude_pattern)]
         var_namescope = self.namescope if not prepend else prepend + "/" + self.namescope
         if load_namescope is None or load_namescope == var_namescope:
-            saver = tf.train.Saver(self.vars, max_to_keep=20)
+            saver = tf.train.Saver(_vars, max_to_keep=20)
         else:
-            var_mapping_dct = {var.op.name.replace(var_namescope + "/", (load_namescope + "/") if load_namescope else ""): var for var in self.vars}
+            var_mapping_dct = {var.op.name.replace(var_namescope + "/", (load_namescope + "/") if load_namescope else ""): var for var in _vars}
             saver = tf.train.Saver(var_mapping_dct, max_to_keep=20)
         return saver
 
@@ -115,8 +134,8 @@ class QCNN(Model):
             self._save_saver = saver
         return self._save_saver
 
-    def load_checkpoint(self, path, sess, load_namescope=None, prepend_namescope=None):
-        self.saver = self.get_saver(load_namescope, prepend=prepend_namescope)
+    def load_checkpoint(self, path, sess, load_namescope=None, prepend_namescope=None, exclude_pattern=[]):
+        self.saver = self.get_saver(load_namescope, prepend=prepend_namescope, exclude_pattern=exclude_pattern)
         print("Load model from", path)
         self.saver.restore(sess, path)
 

@@ -85,17 +85,19 @@ class DenoiseNet(QCNN):
             "logits": self.logits
         }
 
-    def load_checkpoint(self, path, sess, load_namescope=[None, None]):
+    def load_checkpoint(self, path, sess, load_namescope=[None, None], exclude_pattern=[]):
         assert len(path) == 2 and len(load_namescope) == 2
         utils.log("Load denoiser/inner from ", path)
         if path[0]:
             self.denoiser.load_checkpoint(path[0], sess,
                                           load_namescope[0],
-                                          prepend_namescope=self.namescope)
+                                          prepend_namescope=self.namescope,
+                                          exclude_pattern=exclude_pattern)
         if path[1]:
             self.inner_model.load_checkpoint(path[1], sess,
                                              load_namescope[1],
-                                             prepend_namescope=self.namescope)
+                                             prepend_namescope=self.namescope,
+                                             exclude_pattern=exclude_pattern)
 
     def save_checkpoint(self, path, sess):
         if not self.params["denoiser"].get("model_params", {}).get("test_only", False):

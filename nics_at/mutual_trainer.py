@@ -40,6 +40,7 @@ class MutualTrainer(Trainer):
             "temperature": 1,
             "at_mode": "attention",
             "train_models": {},
+            "relu_thresh_schedule": None,
 
             # Testing
             "test_saltpepper": None,
@@ -182,6 +183,10 @@ class MutualTrainer(Trainer):
             self.zero_agrad_op_lst = tuple(self.zero_agrad_op_lst)
         self.namescope_lst = namescope_lst
 
+        # Initialize relu thrshold schedule adjuster
+        if self.FLAGS.relu_thresh_schedule is not None:
+            self.relu_thresh_adjuster = LrAdjuster.create_adjuster(self.FLAGS.relu_thresh_schedule, name="relu_thresh")
+
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
         self.sess = tf.Session(config=config)
@@ -269,6 +274,10 @@ class MutualTrainer(Trainer):
                 return
             else:
                 utils.log("Lr: ", now_lr)
+
+            if self.FLAGS.relu_thresh_schedule is not None:
+                relu_thresh_v = self.relu_thresh_adjuster.get_lr()
+                sess.run(tf.assign(self.model_stu.relu_thresh, relu_thresh_v))
 
             # Train batches
             for step in range(1, steps_per_epoch+1):
@@ -367,14 +376,7 @@ class MutualTrainer(Trainer):
         if load_files:
             assert len(load_files) == self.mutual_num + len(self.FLAGS.additional_models)
             for m, l_namescope, l_file in zip(self.model_lst, load_namescopes, load_files):
-                m.load_checkpoint(l_file, self.sess, l_namescope)
-            # for model_vars, v_namescope, l_namescope, l_file in zip(self.model_vars_lst + self.add_model_vars_lst, self.namescope_lst + add_namescope_lst, load_namescopes, load_files):
-            #     var_mapping_dct = {var.op.name.replace(v_namescope + "/", l_namescope + ("/" if l_namescope else "")): var for var in model_vars}
-            #     # from tensorflow.python import pywrap_tensorflow
-            #     # reader = pywrap_tensorflow.NewCheckpointReader(l_file)
-            #     # var_keys = reader.get_variable_to_shape_map().keys()
-            #     saver = tf.train.Saver(var_mapping_dct)
-            #     saver.restore(sess, l_file)
+                m.load_checkpoint(l_file, self.sess, l_namescope, exclude_pattern=self.FLAGS.load_exclude)
         if self.FLAGS.test_only:
             if self.FLAGS.test_saltpepper is not None:
                 if isinstance(self.FLAGS.test_saltpepper, (tuple, list)):
@@ -389,6 +391,9 @@ class MutualTrainer(Trainer):
             return
 
         if not self.FLAGS.no_init_test:
+            # assign this threshold value to model_stu.relu_thresh variable for initial test
+            if self.FLAGS.relu_thresh_schedule is not None: 
+                sess.run(tf.assign(self.model_stu.relu_thresh, self.FLAGS.relu_thresh_schedule["start_lr"]))
             if self.FLAGS.test_saltpepper is not None:
                 if isinstance(self.FLAGS.test_saltpepper, (tuple, list)):
                     for sp in self.FLAGS.test_saltpepper:
@@ -407,3 +412,6 @@ class MutualTrainer(Trainer):
         parser.add_argument("--load-file", type=str, default=[], action="append",
                     help="Load  model")
         parser.add_argument("--load-namescope", type=str, default=[], action="append", help="The namescope in the to-load checkpoint.")
+
+        parser.add_argument("--load-exclude", metavar="PATTERN", action="append", default=[],
+                            help="Exclude variables container PATTERN while loading from checkpoint")
