@@ -54,9 +54,13 @@ class QCNN(Model):
             self.relu_thresh = None
             with tf.variable_scope(self.namescope):
                 self.relu_thresh = tf.get_variable("relu_thresh", shape=[], dtype=tf.float32, initializer=tf.zeros_initializer(), trainable=False)
-            from nics_at.tf_utils import get_adaptive_relu
-            assert patch_relu in {"thresh", "backthrough_thresh"}
-            self.patch_relu = get_adaptive_relu(self.relu_thresh, back_through=patch_relu=="backthrough_thresh")
+            # from nics_at.tf_utils import get_adaptive_relu
+            # if patch_relu in {"thresh", "backthrough_thresh"}:
+            #     self.patch_relu = get_adaptive_relu(self.relu_thresh, back_through=patch_relu=="backthrough_thresh")
+            # else:
+            from nics_at import tf_utils
+            relu_func = getattr(tf_utils, patch_relu + "_relu")
+            self.patch_relu = lambda inputs: relu_func(inputs, self.relu_thresh)
             self._vars.append(self.relu_thresh)
 
     @property

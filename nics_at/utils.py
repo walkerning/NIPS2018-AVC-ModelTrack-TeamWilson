@@ -157,6 +157,26 @@ class AccLrAdjuster(LrAdjuster):
         elif self.num_epoch - self.best_acc_epoch > self.decay_epoch_thre:
             self.adjust()
 
+class AccLrWithRestartAdjuster(AccLrAdjuster):
+    def __init__(self, cfg):
+        super(AccLrWithRestartAdjuster, self).__init__(cfg)
+        self.restart_every = cfg.get("restart_every", None) # None means restart when reach max_lr
+
+    def restart(self):
+        self.lr = self.cfg["start_lr"]
+        log("Restart {} to {}".format(self.name, self.lr))
+
+    def adjust(self):
+        if self.num_epoch:
+            if self.restart_every is None:
+                if self.lr == self.get("max", np.inf) or self.lr == self.get("min", -np.inf):
+                    self.restart()
+                    return
+            elif self.num_epoch % self.restart_every == 0:
+                self.restart()
+                return
+        super(AccLrWithRestartAdjuster, self).adjust()
+
 def get_log_func(log_file):
     def log(*args, **kwargs):
         flush = kwargs.pop("flush", None)

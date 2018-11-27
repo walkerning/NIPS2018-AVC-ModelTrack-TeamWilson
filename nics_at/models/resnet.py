@@ -29,7 +29,20 @@ class Resnet(QCNN):
         self.final_size = 512
         self.more_blocks = params.get("more_blocks", False)
         self.batch_norm_momentum = params.get("batch_norm_momentum", 0.997)
+        self.coarse_dropout = params.get("coarse_dropout", None)
         print("weight decay: {}; batch norm momentum: {}".format(self.weight_decay, self.batch_norm_momentum))
+        if self.coarse_dropout is not None:
+            with tf.variable_scope(self.namescope):
+                # self.dropout_keep_prob = tf.placeholder(dtype=tf.float32, shape=[], name="coarse_dropout_keep_prob")
+                # NOTE: for now, just use a single value for dropout
+                # FIXME: Maybe smaller divs should use bigger keep prob, as a large continous area might matters more than many small scattered areas.
+                self.dropout_keep_prob = params.get("coarse_dropout_keep_prob", 0.8)
+
+                # NOTE: for now, all level of feature share the same coarse dropout div in one run; maybe can use different div in different level.
+                self.dropout_div_h = self.dropout_div_w = tf.constant(self.coarse_dropout)[tf.multinomial(tf.ones_like([self.coarse_dropout], dtype=tf.float32), num_samples=1)[0][0]]
+                # self.dropout_div_h = tf.placeholder(dtype=tf.int32, shape=[], name="coarse_dropout_div_h")
+                # self.dropout_div_w = tf.placeholder(dtype=tf.int32, shape=[], name="coarse_dropout_div_w")
+                print("coarse dropout keep prob: {}".format(self.dropout_keep_prob))
 
     def batch_norm(self, inputs, training, data_format):
         """Performs a batch normalization using a standard set of parameters."""
@@ -87,7 +100,7 @@ class Resnet(QCNN):
 
 
     def _building_block_v2(self, inputs, filters, training, projection_shortcut, strides,
-                                                 data_format):
+                           data_format, coarse_dropout=False):
         shortcut = inputs
         inputs = self.batch_norm(inputs, training, data_format)
         inputs = tf.nn.relu(inputs)
@@ -98,6 +111,11 @@ class Resnet(QCNN):
         # since it performs a 1x1 convolution.
         if projection_shortcut is not None:
             shortcut = projection_shortcut(inputs)
+
+        if coarse_dropout:
+            # coarse_dropout is applied in the first block per block_layer before projection/stride, after bn(i think before bn might cause variance shift between train/test)
+            from nics_at.tf_utils import coarse_dropout
+            inputs = coarse_dropout(inputs, self.dropout_keep_prob, self.dropout_div_h, self.dropout_div_w, self.training)
 
         inputs = self.conv2d_fixed_padding(
                 inputs=inputs, filters=filters, kernel_size=3, strides=strides,
@@ -126,8 +144,7 @@ class Resnet(QCNN):
 
         # Only the first block per block_layer uses projection_shortcut and strides
         inputs = block_fn(inputs, filters, training, projection_shortcut, strides,
-                                            data_format)
-
+                                            data_format, self.coarse_dropout is not None)
         for _ in range(1, blocks):
             inputs = block_fn(inputs, filters, training, None, 1, data_format)
 
