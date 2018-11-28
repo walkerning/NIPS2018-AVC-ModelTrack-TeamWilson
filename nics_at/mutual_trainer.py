@@ -20,14 +20,15 @@ class MutualTrainer(Trainer):
         default_cfg = {
             "models": [],
             "test_frequency": 1,
-            "aug_mode": "pre",
 
-            # Training
+            # Dataset
+            "dataset": "tinyimagenet",
+            "dataset_info": {},
             "num_threads": 2,
             "more_augs": False,
-            "use_imgnet1k": False,
-            "mixup_alpha": 1.0,
 
+            # Training
+            "mixup_alpha": 1.0,
             "distill_use_auged": False,
             "epochs": 50,
             "batch_size": 100,

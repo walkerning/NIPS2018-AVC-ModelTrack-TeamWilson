@@ -16,7 +16,7 @@ class Resnet(QCNN):
         self.block_fn = self._building_block_v2
         self.bottleneck = False
         self.data_format = ('channels_first' if tf.test.is_built_with_cuda() else 'channels_last')
-        self.num_classes = 200
+        self.num_classes = params.get("num_classes", 200)
         self.num_filters = 64
         self.kernel_size = 3
         self.conv_stride = 1

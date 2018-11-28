@@ -4,7 +4,7 @@ from __future__ import print_function
 import copy
 import os
 
-from datasets import Dataset
+from datasets import get_dataset_cls
 
 class settings(object):
     default_cfg = {}
@@ -32,8 +32,11 @@ class Trainer(object):
     def __init__(self, args, cfg):
         self.sess = None
         self.FLAGS = self._settings(cfg, args)
-        self.dataset = Dataset(self.FLAGS.batch_size, self.FLAGS.epochs, self.FLAGS.aug_saltpepper, self.FLAGS.aug_gaussian,
-                               generated_adv=self.FLAGS.generated_adv, num_threads=self.FLAGS.num_threads, more_augs=self.FLAGS.more_augs, use_imgnet1k=self.FLAGS.use_imgnet1k)
+        self.dataset = get_dataset_cls(self.FLAGS.dataset)(self.FLAGS.batch_size, self.FLAGS.epochs,
+                                                           self.FLAGS.aug_saltpepper, self.FLAGS.aug_gaussian,
+                                                           generated_adv=self.FLAGS.generated_adv,
+                                                           num_threads=self.FLAGS.num_threads, more_augs=self.FLAGS.more_augs,
+                                                           dataset_info=self.FLAGS.get("dataset_info", {}))
 
     @classmethod
     def populate_arguments(cls, parser):

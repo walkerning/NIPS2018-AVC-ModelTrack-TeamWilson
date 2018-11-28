@@ -21,17 +21,15 @@ class DistillTrainer(Trainer):
         default_cfg = {
             "model": None,
             "test_frequency": 1,
-            "aug_mode": "pre",
-            "test_frequency": 1,
-            "aug_mode": "pre",
 
             # Data gen
+            "dataset": "tinyimagenet",
+            "dataset_info": {},
             "num_threads": 2,
             "more_augs": False,
-            "use_imgnet1k": False,
-            "mixup_alpha": 1.0,
 
             # Training
+            "mixup_alpha": 1.0,
             "distill_use_auged": False, # 一个谜一样的bug
             "epochs": 50,
             "batch_size": 100,

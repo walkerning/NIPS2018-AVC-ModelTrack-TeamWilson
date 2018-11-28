@@ -22,7 +22,8 @@ import tensorflow as tf
 from nics_at import utils
 
 class Dataset(object):
-    def __init__(self, batch_size, epochs, aug_saltpepper, aug_gaussian, generated_adv=[], num_threads=2, capacity=1024, more_augs=False, use_imgnet1k=False):
+    def __init__(self, batch_size, epochs, aug_saltpepper, aug_gaussian, generated_adv=[], num_threads=2, capacity=1024, more_augs=False, dataset_info={}):
+        self.dataset_info = dataset_info
         self.batch_size = batch_size
         if isinstance(num_threads, int):
             self.num_threads = {"train": num_threads, "val": num_threads}
@@ -36,7 +37,6 @@ class Dataset(object):
         self.generated_adv = generated_adv
         self.generated_adv_num = len(generated_adv)
         self.more_augs = more_augs
-        self.use_imgnet1k = use_imgnet1k
         if self.more_augs:
             rarely = lambda aug: iaa.Sometimes(0.1, aug)
             sometimes = lambda aug: iaa.Sometimes(0.25, aug)
@@ -150,6 +150,51 @@ class Dataset(object):
             self.more_aug = aug
         self.label_dict, self.class_description = self.build_label_dicts()
         self._gen = False
+    
+    def batch_q(self, mode):
+        """Return batch of images using filename Queue
+    
+        Args:
+            mode: 'train' or 'val'
+            config: training configuration object
+    
+        Returns:
+            imgs: tf.uint8 tensor [batch_size, height, width, channels]
+            auged_img: tf.uint8 tensor [batch_size, height, width, channels]
+            labels: tf.uint8 tensor [batch_size,]
+            adv_imgs: tf.uint8 tensor [batch_size, adv_num, height, width, channels]
+        """
+        self.filenames_labels = self.load_filenames_labels(mode)
+        random.shuffle(self.filenames_labels)
+        filename_q = tf.train.input_producer(self.filenames_labels,
+                                             num_epochs=self.gen_epochs * 4 if mode == "val" else self.gen_epochs,
+                                             shuffle=True,
+                                             name="data_producer_" + mode)
+
+        return tf.train.batch_join([self.read_image(filename_q, mode) for i in range(self.num_threads[mode])],
+                                   self.batch_size, shapes=[self.image_shape, self.image_shape, (),
+                                                            [self.generated_adv_num] + list(self.image_shape)],
+                                   capacity=self.capacity)
+
+    @property
+    def data_tensors(self):
+        if not self._gen:
+            self._gen = True
+            with tf.device('/cpu:0'):
+                self.imgs_t, self.auged_imgs_t, self.labels_t, self.adv_imgs_t = self.batch_q("train")
+                self.imgs_v, self.auged_imgs_v, self.labels_v, self.adv_imgs_v = self.batch_q("val")
+    
+            self.labels_t = tf.one_hot(self.labels_t, self.num_labels)
+            self.labels_v = tf.one_hot(self.labels_v, self.num_labels)
+        return (self.imgs_t, self.auged_imgs_t, self.labels_t, self.adv_imgs_t), (self.imgs_v, self.auged_imgs_v, self.labels_v, self.adv_imgs_v)
+
+class TinyImageNetDataset(Dataset):
+    def __init__(self, *args, **kwargs):
+        super(TinyImageNetDataset, self).__init__(*args, **kwargs)
+        # dataset_info is the specific dataset configs
+        self.use_imgnet1k = self.dataset_info.get("use_imgnet1k", False)
+        self.image_shape = [64,64,3]
+        self.num_labels = 200
 
     def load_filenames_labels(self, mode):
         filenames_labels = []
@@ -277,40 +322,82 @@ class Dataset(object):
                 adv_imgs.append(tf.cast(data, tf.float32))
             adv_imgs = tf.reshape(tf.stack(adv_imgs), (self.generated_adv_num, 64, 64, 3))
         return [img, auged_img, label, adv_imgs]
-    
-    
-    def batch_q(self, mode):
-        """Return batch of images using filename Queue
-    
-        Args:
-            mode: 'train' or 'val'
-            config: training configuration object
-    
-        Returns:
-            imgs: tf.uint8 tensor [batch_size, height, width, channels]
-            auged_img: tf.uint8 tensor [batch_size, height, width, channels]
-            labels: tf.uint8 tensor [batch_size,]
-            adv_imgs: tf.uint8 tensor [batch_size, adv_num, height, width, channels]
-        """
-        self.filenames_labels = self.load_filenames_labels(mode)
-        random.shuffle(self.filenames_labels)
-        filename_q = tf.train.input_producer(self.filenames_labels,
-                                             num_epochs=self.gen_epochs * 4 if mode == "val" else self.gen_epochs,
-                                             shuffle=True,
-                                             name="data_producer_" + mode)
 
-        return tf.train.batch_join([self.read_image(filename_q, mode) for i in range(self.num_threads[mode])],
-                                   self.batch_size, shapes=[(64, 64, 3), (64, 64, 3), (), (self.generated_adv_num, 64, 64, 3)],
-                                   capacity=self.capacity)
 
-    @property
-    def data_tensors(self):
-        if not self._gen:
-            self._gen = True
-            with tf.device('/cpu:0'):
-                self.imgs_t, self.auged_imgs_t, self.labels_t, self.adv_imgs_t = self.batch_q("train")
-                self.imgs_v, self.auged_imgs_v, self.labels_v, self.adv_imgs_v = self.batch_q("val")
+class Cifar10Dataset(Dataset):
+    def __init__(self, *args, **kwargs):
+        super(TinyImageNetDataset, self).__init__(*args, **kwargs)
+        # dataset_info is the specific dataset configs
+        self.image_shape = [32,32,3]
+        self.num_labels = num_labels
+
+    def load_filenames_labels(self, mode):
+        import yaml
+        filenames_labels = []
+        with open("./cifar10_{}.yaml".format(mode), "r") as yaml_f:
+            fname_label_dct = yaml.load(yaml_f)
+        for fname, label in fname_label_dct.iteritems():
+            filenames_label = [fname, label]
+            filename_label += [os.path.join(adv_cfg["path"], mode, os.path.basename(fname).split(".")[0] + "." + adv_cfg["suffix"]) for adv_cfg in self.generated_adv]
+            filenames_labels.append(tuple(filename_label))
+        setattr(self, mode + "_num", len(filenames_labels))
+        return filenames_labels
+
+    def build_label_dicts(self):
+        label_dct = {n: i for i, n in enumerate(["airplane", "automobile", "bird", "cat", "deer", "dog", "frog", "horse", "ship", "truck"])}
+        class_description = {}
+        return label_dict, class_description
     
-            self.labels_t = tf.one_hot(self.labels_t, 200)
-            self.labels_v = tf.one_hot(self.labels_v, 200)
-        return (self.imgs_t, self.auged_imgs_t, self.labels_t, self.adv_imgs_t), (self.imgs_v, self.auged_imgs_v, self.labels_v, self.adv_imgs_v)
+    def read_image(self, filename_q, mode):
+        item = filename_q.dequeue()
+        filename = item[0]
+        label = item[1]
+        file = tf.read_file(filename)
+        img = tf.reshape(tf.decode_raw(file, out_type=tf.uint8), (32, 32, 3))
+        img = tf.cast(img, tf.float32)
+
+        if mode == "train":
+            auged_img = tf.image.random_flip_left_right(img)
+            auged_img = tf.image.random_brightness(auged_img, 0.15)
+            auged_img = tf.image.random_contrast(auged_img, 0.8, 1.25)
+            auged_img = tf.image.random_hue(auged_img, 0.1)
+            auged_img = tf.image.random_saturation(auged_img, 0.8, 1.25)
+            if self.aug_saltpepper is not None:
+                p = tf.random_uniform([], minval=self.aug_saltpepper[0], maxval=self.aug_saltpepper[1])
+                u = tf.expand_dims(tf.random_uniform([32, 32], maxval=1.0), axis=-1)
+                salt = tf.cast(u >= 1 - p/2, tf.float32) * 256
+                pepper = - tf.cast(u < p/2, tf.float32) * 256
+                auged_img = tf.clip_by_value(auged_img + salt + pepper, 0, 255)
+            if self.aug_gaussian is not None and (not self.more_augs or self.more_augs in {"v3", "v4", "v5"}):
+                if isinstance(self.aug_gaussian, (tuple, list)):
+                    eps = tf.random_uniform([], minval=self.aug_gaussian[0], maxval=self.aug_gaussian[1])
+                else:
+                    eps = self.aug_gaussian
+                noise = tf.random_normal([32, 32, 3], stddev=eps/np.sqrt(3)*256)
+                auged_img = tf.clip_by_value(auged_img + noise, 0, 255)
+                auged_img = tf.pad(auged_img, tf.constant([[4, 4], [4, 4], [0, 0]]))
+                auged_img = tf.random_crop(auged_img, [32, 32, 3])
+        else: # val
+            auged_img = img
+
+        # auged_img = tf.image.per_image_standardization(auged_img)
+
+        label = tf.string_to_number(label, tf.int32)
+        label = tf.cast(label, tf.uint8)
+        adv_imgs = []
+        for i in range(self.generated_adv_num):
+            adv_filename = item[i+3]
+            file = tf.read_file(adv_filename)
+            data = tf.decode_raw(file, out_type=tf.uint8)
+            data = tf.reshape(data, (32, 32, 3))
+            adv_imgs.append(tf.cast(data, tf.float32))
+        adv_imgs = tf.reshape(tf.stack(adv_imgs), (self.generated_adv_num, 32, 32, 3))
+        return [img, auged_img, label, adv_imgs]
+
+type_dataset_map = {
+    "cifar10": Cifar10Dataset,
+    "tinyimagenet": TinyImageNetDataset
+}
+
+def get_dataset_cls(type_):
+    return type_dataset_map[type_]
