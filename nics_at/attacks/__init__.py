@@ -70,7 +70,7 @@ class AttackGenerator(object):
 
     @profiling
     def generate_for_model(self, x, y, mid, pre_adv_x=None):
-        cfg = self.cfg[mid]
+        cfg = self.cfg.get(mid, []) or []
         attacks = self.get_attacks(cfg)
         generated = []
         ys = []

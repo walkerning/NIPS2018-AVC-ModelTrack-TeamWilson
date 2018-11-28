@@ -20,14 +20,15 @@ class MutualTrainer(Trainer):
         default_cfg = {
             "models": [],
             "test_frequency": 1,
-            "aug_mode": "pre",
 
-            # Training
+            # Dataset
+            "dataset": "tinyimagenet",
+            "dataset_info": {},
             "num_threads": 2,
             "more_augs": False,
-            "use_imgnet1k": False,
-            "mixup_alpha": 1.0,
 
+            # Training
+            "mixup_alpha": 1.0,
             "distill_use_auged": False,
             "epochs": 50,
             "batch_size": 100,
@@ -190,7 +191,7 @@ class MutualTrainer(Trainer):
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
         self.sess = tf.Session(config=config)
-        [Attack.create_attack(self.sess, a_cfg) for a_cfg in self.FLAGS["available_attacks"]]
+        [Attack.create_attack(self.sess, a_cfg) for a_cfg in (self.FLAGS["available_attacks"] or [])]
         self.train_attack_gen = AttackGenerator(self.FLAGS["train_models"], merge=self.FLAGS.train_merge_adv,
                                                 split_adv=self.FLAGS.split_adv, random_split_adv=self.FLAGS.random_split_adv,
                                                 random_interp=self.FLAGS.random_interp, random_interp_adv=self.FLAGS.random_interp_adv,
@@ -415,3 +416,5 @@ class MutualTrainer(Trainer):
 
         parser.add_argument("--load-exclude", metavar="PATTERN", action="append", default=[],
                             help="Exclude variables container PATTERN while loading from checkpoint")
+
+        parser.add_argument("--scratch", action="store_true", help="training a model from scratch") # this argument is not need in mutual

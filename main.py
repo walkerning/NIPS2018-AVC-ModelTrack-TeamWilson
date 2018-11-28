@@ -27,6 +27,8 @@ parser.add_argument("--test-only", action="store_true", default=False, help="Onl
 parser.add_argument("--no-init-test", action="store_true", default=False, help="Do not run test before training")
 parser.add_argument("--save-every", default=5, type=int)
 parser.add_argument("--print-every", default=10, type=int, help="print every PRINT_EVERY step")
+parser.add_argument("--test-path", default=None, help="Used when test_only is true, dataset-specific arg to change test data.")
+parser.add_argument("--load-file-test", default=[], action="append", help="Used when test_only is true, test more stu models.")
 
 subparsers = parser.add_subparsers(dest="trainer_type")
 for t_tp, t_cls in trainers.iteritems():
@@ -47,16 +49,16 @@ if not args.test_only:
     args.log_file = open(args.log_file, "w")
     # shutil.copyfile(sys.argv[0], os.path.join(args.train_dir, "train.py"))
     def _onlycopy_py(src, names):
-        return [name for name in names if not name.endswith(".py")]
+        return [name for name in names if not (name.endswith(".py") or os.path.isdir(os.path.join(src, name)))]
     if os.path.exists(os.path.join(args.train_dir, "nics_at")):
         shutil.rmtree(os.path.join(args.train_dir, "nics_at"))
-    shutil.copytree("nics_at",  os.path.join(args.train_dir, "nics_at"))
+    shutil.copytree("nics_at",  os.path.join(args.train_dir, "nics_at"), ignore=_onlycopy_py)
     shutil.copyfile(args.config, os.path.join(args.train_dir, "config.yaml"))
 else:
     args.log_file = None
 utils.log = utils.get_log_func(args.log_file)
 utils.log("CMD: ", " ".join(sys.argv))
-if not args.train_dir:
+if not args.test_only and not args.train_dir:
     log("WARNING: model will not be saved if `--train_dir` option is not given.")
 trainer = trainers[args.trainer_type](args, config)
 trainer.init()
