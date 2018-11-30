@@ -83,6 +83,3 @@ fi
 if [[ ${TEST_CW} -gt 0 ]]; then
     python benchmark/bm.py ${label_f} ${impath_arg} ${addi_arg} --gpu ${gpu} -t cw_l2 ${forward_arg} --save  ${result_dir}/${test_name}/ 2>&1 | tee ${result_dir}/${test_name}/cw_l2.log
 fi
-
-
-

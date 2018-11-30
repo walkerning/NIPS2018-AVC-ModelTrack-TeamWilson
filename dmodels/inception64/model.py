@@ -29,7 +29,7 @@ class Inception64(BaseTFModel):
             _G_MEAN = 116.78
             _B_MEAN = 103.94
             _CHANNEL_MEANS = [_R_MEAN, _G_MEAN, _B_MEAN]
-            inputs = inputs - tf.constant(_CHANNEL_MEANS)                 
+            inputs = inputs - tf.constant(_CHANNEL_MEANS)
             ###stem
             c = conv_relu(inputs, 1, 32, (3, 3), 2)
             c = conv_relu(c, 2, 64, (3, 3), 1)

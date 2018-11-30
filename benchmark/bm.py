@@ -126,17 +126,19 @@ def main(reader, types, save, backward_cfg=None, forward_cfg=None, verbose=False
     print("test accuracy: {:.2f}%".format(100. - accuracy_counter * 100. / num_test))
     print("not find adv samples: \n\t{}".format("\n\t".join(["{}: {}; {:.3f}%".format(tp, num, float(num)/num_test * 100) for tp, num in not_adv.items()])))
 
-    # open("file_predict_label.txt", "w").write("\n".join(["{} {} {}".format(*x) for x in clean_predicts]))
-    predict_fname = os.path.join(os.environ["OUTPUT_ADVERSARIAL_PATH"], "predicts_{}.csv".format(datetime.datetime.now().strftime("%m-%d_%H-%M-%S")))
-    print("Save predict to csv: ", predict_fname)
-    pd.DataFrame(clean_predicts, columns=["filename", "label", "pred"] + list(types)).to_csv(predict_fname, index=False)
-    input_link = os.path.join(os.environ["OUTPUT_ADVERSARIAL_PATH"], "pred")
-    if os.path.islink(input_link):
-        os.unlink(input_link) # remove already exists symbol link
-    os.symlink(os.path.abspath(os.environ["INPUT_IMG_PATH"]), input_link)
+    if args.save:
+        # open("file_predict_label.txt", "w").write("\n".join(["{} {} {}".format(*x) for x in clean_predicts]))
+        predict_fname = os.path.join(os.environ["OUTPUT_ADVERSARIAL_PATH"], "predicts_{}.csv".format(datetime.datetime.now().strftime("%m-%d_%H-%M-%S")))
+        print("Save predict to csv: ", predict_fname)
+        pd.DataFrame(clean_predicts, columns=["filename", "label", "pred"] + list(types)).to_csv(predict_fname, index=False)
+        input_link = os.path.join(os.environ["OUTPUT_ADVERSARIAL_PATH"], "pred")
+        if os.path.islink(input_link):
+            os.unlink(input_link) # remove already exists symbol link
+        os.symlink(os.path.abspath(os.environ["INPUT_IMG_PATH"]), input_link)
     if adv_pattern_predicts:
-        adv_pattern_predict_fname = os.path.join(os.environ["OUTPUT_ADVERSARIAL_PATH"], "adv_pattern_predicts_{}.csv".format(datetime.datetime.now().strftime("%m-%d_%H-%M-%S")))
-        pd.DataFrame(adv_pattern_predicts, columns=["filename", "label", "pred"] + list(types)).to_csv(adv_pattern_predict_fname, index=False)
+        if args.save:
+            adv_pattern_predict_fname = os.path.join(os.environ["OUTPUT_ADVERSARIAL_PATH"], "adv_pattern_predicts_{}.csv".format(datetime.datetime.now().strftime("%m-%d_%H-%M-%S")))
+            pd.DataFrame(adv_pattern_predicts, columns=["filename", "label", "pred"] + list(types)).to_csv(adv_pattern_predict_fname, index=False)
         adv_pattern_acc = np.sum(np.array([[p[1]] for p in adv_pattern_predicts]) == np.array([p[2:] for p in adv_pattern_predicts]), axis=0) / float(len(adv_pattern_predicts))
         print("adv pattern acc: \n\t{}".format("\n\t".join(["{}: {:.3f}%".format(tp, acc*100) for tp, acc in zip(["pred"]+list(types), adv_pattern_acc)])))
     for tp, dis in zip(types, distances):
