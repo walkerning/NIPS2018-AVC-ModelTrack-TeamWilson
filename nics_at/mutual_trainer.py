@@ -53,8 +53,10 @@ class MutualTrainer(Trainer):
             
             # Adversarial Augmentation
             "available_attacks": [],
+            "use_cache": False, # whether attack generator cached adversarial for every batch
             "generated_adv": [],
             "train_models": {},
+            "update_per_batch": 1, # this configuration is deprecating...
             "train_merge_adv": False,
             "split_adv": False,
             "test_split_adv": False,
@@ -73,10 +75,11 @@ class MutualTrainer(Trainer):
     def init(self):
         self.mutual_num = len(self.FLAGS["models"])
         batch_size = self.FLAGS.batch_size
+        self.num_labels = self.dataset.num_labels
 
         (self.imgs_t, self.auged_imgs_t, self.labels_t, self.adv_imgs_t), (self.imgs_v, self.auged_imgs_v, self.labels_v, self.adv_imgs_v) = self.dataset.data_tensors
 
-        self.labels = tf.placeholder(tf.float32, [None, 200], name="labels")
+        self.labels = tf.placeholder(tf.float32, [None, self.num_labels], name="labels")
         model_lst = [QCNN.create_model(m_cfg) for m_cfg in self.FLAGS["models"]]
         input_holder_lst = []
         saver_lst = []
@@ -90,15 +93,15 @@ class MutualTrainer(Trainer):
         accuracy_lst = []
         namescope_lst = [m_cfg["namescope"] for m_cfg in self.FLAGS["models"]]
         for i in range(self.mutual_num):
-            x = tf.placeholder(tf.float32, shape=[None, 64, 64, 3], name="x_{}".format(i))
-            prob_ph = tf.placeholder(tf.float32, shape=[None, 200], name="prob_placeholder_{}".format(i))
+            x = tf.placeholder(tf.float32, shape=[None] + list(self.dataset.image_shape), name="x_{}".format(i))
+            prob_ph = tf.placeholder(tf.float32, shape=[None, self.dataset.num_labels], name="prob_placeholder_{}".format(i))
             name_scope = namescope_lst[i]
             model = model_lst[i]
             training = model.get_training_status()
             logits = model.get_logits(x)
             prob = tf.nn.softmax(logits)
             # reshape_labels = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tf.shape(logits)[0] / batch_size, 1]), [-1, 200])
-            reshape_labels = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tf.shape(logits)[0] / tf.shape(self.labels)[0], 1]), [-1, 200])
+            reshape_labels = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tf.shape(logits)[0] / tf.shape(self.labels)[0], 1]), [-1, self.num_labels])
             ce_loss = tf.reduce_mean(
                 tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=logits))
 
@@ -123,7 +126,7 @@ class MutualTrainer(Trainer):
         # additional test only models
         for i in range(len(self.FLAGS["additional_models"])):
             m_cfg = self.FLAGS["additional_models"][i]
-            x = tf.placeholder(tf.float32, shape=[None, 64, 64, 3], name="x_addi_{}".format(i))
+            x = tf.placeholder(tf.float32, shape=[None] + self.dataset.image_shape, name="x_addi_{}".format(i))
             model = QCNN.create_model(m_cfg)
             logits = model.get_logits(x)
             AvailModels.add(model, x, logits)
@@ -140,7 +143,7 @@ class MutualTrainer(Trainer):
         for i in range(self.mutual_num):
             name_scope = namescope_lst[i]
             prob = prob_lst[i]
-            reshape_prob_placeholders = [tf.reshape(tf.tile(tf.expand_dims(prob_placeholder_lst[j], 1), [1, tf.shape(prob)[0] / batch_size, 1]), [-1, 200]) for j in range(self.mutual_num) if j != i]
+            reshape_prob_placeholders = [tf.reshape(tf.tile(tf.expand_dims(prob_placeholder_lst[j], 1), [1, tf.shape(prob)[0] / batch_size, 1]), [-1, self.num_labels]) for j in range(self.mutual_num) if j != i]
             kl_losses = [tf.reduce_mean(tf.reduce_sum(rpph * (tf.log(rpph+1e-10) - tf.log(prob+1e-10)), axis=-1)) for rpph in reshape_prob_placeholders]
             kl_loss = tf.reduce_mean(kl_losses)
             loss = self.FLAGS.theta * ce_loss_lst[i] + self.FLAGS.alpha * kl_loss
@@ -195,9 +198,11 @@ class MutualTrainer(Trainer):
         self.train_attack_gen = AttackGenerator(self.FLAGS["train_models"], merge=self.FLAGS.train_merge_adv,
                                                 split_adv=self.FLAGS.split_adv, random_split_adv=self.FLAGS.random_split_adv,
                                                 random_interp=self.FLAGS.random_interp, random_interp_adv=self.FLAGS.random_interp_adv,
+                                                use_cache=self.FLAGS.use_cache,
                                                 mixup_alpha=self.FLAGS.mixup_alpha, name="train")
         self.test_attack_gen = AttackGenerator(self.FLAGS["test_models"],
                                                split_adv=self.FLAGS.test_split_adv, random_interp_adv=self.FLAGS.test_random_interp_adv,
+                                               use_cache=self.FLAGS.use_cache,
                                                name="test")
 
     def test(self, saltpepper=None, adv=False, name=""):
