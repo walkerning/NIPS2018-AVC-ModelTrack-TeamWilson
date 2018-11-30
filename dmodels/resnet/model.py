@@ -32,7 +32,7 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
-
+import numpy as np
 from ..tf_base import BaseTFModel
 from ..utils import tf_vars_before_after, handle_name_space
 
@@ -353,7 +353,9 @@ class ResNet(BaseTFModel):
                kernel_size,
                conv_stride, first_pool_size, first_pool_stride,
                second_pool_size, second_pool_stride, block_sizes, block_strides,
-               final_size, version=DEFAULT_VERSION, data_format=None, name=None, name_space=""):
+               final_size, version=DEFAULT_VERSION, data_format=None, name=None,
+               substract_mean=[123.68, 116.78, 103.94], div=1., 
+               name_space=""):
     """Creates a model for classifying an image.
 
     Args:
@@ -423,6 +425,11 @@ class ResNet(BaseTFModel):
     self.block_strides = block_strides
     self.final_size = final_size
 
+    self.substract_mean = substract_mean
+    if isinstance(self.substract_mean, str):
+      self.substract_mean = np.load(self.substract_mean) # load mean from npy
+    self.div = div
+
     self.name_space = handle_name_space(name_space)
 
   @tf_vars_before_after
@@ -438,11 +445,9 @@ class ResNet(BaseTFModel):
       A logits Tensor with shape [<batch_size>, self.num_classes].
     """
     with tf.variable_scope(self.name_space):
-      _R_MEAN = 123.68
-      _G_MEAN = 116.78
-      _B_MEAN = 103.94
-      _CHANNEL_MEANS = [_R_MEAN, _G_MEAN, _B_MEAN]
-      inputs = inputs - tf.constant(_CHANNEL_MEANS)
+      inputs = inputs - tf.cast(tf.constant(self.substract_mean), tf.float32)
+      if self.div and not np.all(self.div == 1.):
+        inputs = inputs / self.div
       if self.data_format == 'channels_first':
         # Convert the inputs from channels_last (NHWC) to channels_first (NCHW).
         # This provides a large performance boost on GPU. See

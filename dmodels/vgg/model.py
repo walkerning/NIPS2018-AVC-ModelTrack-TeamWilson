@@ -1,23 +1,27 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
+import numpy as np
 
 from ..tf_base import BaseTFModel
 from ..utils import tf_vars_before_after, handle_name_space
 
 class VGG(BaseTFModel):
     FRAMEWORK = "tensorflow"
-    def __init__(self, name_space=""):
+    def __init__(self, num_classes=200, substract_mean=[123.68, 116.78, 103.94], div=1., name_space=""):
         # no configuration now
         super(VGG, self).__init__()
         self.name_space = handle_name_space(name_space)
+        self.num_classes = num_classes
+        self.substract_mean = substract_mean
+        if isinstance(self.substract_mean, str):
+            self.substract_mean = np.load(self.substract_mean) # load mean from npy
+        self.div = div
 
     @tf_vars_before_after
     def __call__(self, inputs, training):
         def conv_relu_pool(input_, index_, filters_, use_pool = True, kernel_size_ = 3, stride_ = 1, name_scope = ""):
             conv_ = tf.layers.conv2d(input_, filters=filters_, kernel_size=(kernel_size_,kernel_size_),
                                      strides=(stride_,stride_), padding="same", use_bias=False,
-                                     #kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay),
-                                     #kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
                                      name=name_scope + "conv"+str(index_))
             bn_ = tf.contrib.layers.batch_norm(conv_, is_training=training, scale=True,
                                                scope=name_scope+"bn"+str(index_), decay=0.9)
@@ -28,11 +32,9 @@ class VGG(BaseTFModel):
             else:
                 return conv_, relu_
         with tf.variable_scope(self.name_space):
-            _R_MEAN = 123.68
-            _G_MEAN = 116.78
-            _B_MEAN = 103.94
-            _CHANNEL_MEANS = [_R_MEAN, _G_MEAN, _B_MEAN]
-            inputs = inputs - tf.constant(_CHANNEL_MEANS)                 
+            inputs = inputs - tf.cast(tf.constant(self.substract_mean), tf.float32)
+            if self.div and not np.all(self.div == 1.):
+                inputs = inputs / self.div
             conv1, relu1, pool1 = conv_relu_pool(inputs, 1, 64)
             conv2, relu2, pool2 = conv_relu_pool(pool1, 2, 128)
             conv3_1, relu3_1 = conv_relu_pool(pool2, 3, 256, use_pool=False)
@@ -43,15 +45,9 @@ class VGG(BaseTFModel):
             conv5_2, relu5_2, pool5 = conv_relu_pool(relu5_1, 8, 512, use_pool=True)
             flat = tf.contrib.layers.flatten(pool5)
             ip1 = tf.layers.dense(flat, units=2048, name="ip1")
-            #kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
-            # kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay))
             relu6 = tf.nn.relu(ip1, name="relu6")
             ip2 = tf.layers.dense(relu6, units=2048, name="ip2")
-            #kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
-            #kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay))
             relu7 = tf.nn.relu(ip2, name="relu7")
-            logits = tf.layers.dense(relu7, units=200, name="logits")
-            #kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
-            #kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay))
+            logits = tf.layers.dense(relu7, units=self.num_classes, name="logits")
         return logits
 Model = VGG

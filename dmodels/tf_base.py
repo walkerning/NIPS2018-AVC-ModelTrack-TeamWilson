@@ -21,7 +21,8 @@ class BaseTFModel(BaseModel):
         # graph = tf.Graph()
         graph = tf.get_default_graph()
         with graph.as_default():
-            images = tf.placeholder(tf.float32, (None, 64, 64, 3))
+            image_shape = cfg["cfg"].pop("image_shape", [64, 64, 3])
+            images = tf.placeholder(tf.float32, tuple([None] + list(image_shape)))
             model = cls(**cfg["cfg"])
             logits = model(images, training=False)
         model.graph = graph

@@ -1,23 +1,27 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
+import numpy as np
 
 from ..tf_base import BaseTFModel
 from ..utils import tf_vars_before_after, handle_name_space
 
 class Inception64(BaseTFModel):
     FRAMEWORK = "tensorflow"
-    def __init__(self, name_space=""):
+    def __init__(self, num_classes=200, substract_mean=[123.68, 116.78, 103.94], div=1., name_space=""):
         # no configuration now
         super(Inception64, self).__init__()
         self.name_space = handle_name_space(name_space)
+        self.num_classes = num_classes
+        self.substract_mean = substract_mean
+        if isinstance(self.substract_mean, str):
+            self.substract_mean = np.load(self.substract_mean) # load mean from npy
+        self.div = div
 
     @tf_vars_before_after
     def __call__(self, inputs, training):
         def conv_relu(input_, index_, filters_, kernel_size_ = (3, 3), stride_ = 2, name_scope=""):
             conv_ = tf.layers.conv2d(input_, filters=filters_, kernel_size=kernel_size_,
                                      strides=(stride_,stride_), padding="same", use_bias=False,
-                                     # kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay),
-                                     # kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
                                      name=name_scope+"conv"+str(index_))
             bn_ = tf.contrib.layers.batch_norm(conv_, is_training=training, scale=True,
                  scope=name_scope+"bn"+str(index_), decay=0.9)
@@ -25,11 +29,9 @@ class Inception64(BaseTFModel):
             return relu_
 
         with tf.variable_scope(self.name_space):
-            _R_MEAN = 123.68
-            _G_MEAN = 116.78
-            _B_MEAN = 103.94
-            _CHANNEL_MEANS = [_R_MEAN, _G_MEAN, _B_MEAN]
-            inputs = inputs - tf.constant(_CHANNEL_MEANS)
+            inputs = inputs - tf.cast(tf.constant(self.substract_mean), tf.float32)
+            if self.div and not np.all(self.div == 1.):
+                inputs = inputs / self.div
             ###stem
             c = conv_relu(inputs, 1, 32, (3, 3), 2)
             c = conv_relu(c, 2, 64, (3, 3), 1)
@@ -144,9 +146,7 @@ class Inception64(BaseTFModel):
                     strides=(2,2), padding='SAME')
             c = tf.layers.dropout(c, 0.2, training=training)
             c = tf.contrib.layers.flatten(c)
-            c = tf.layers.dense(c, units=200, name="ip1")
-            #kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
-            #kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay))
+            c = tf.layers.dense(c, units=self.num_classes, name="ip1")
         return c
 
 Model = Inception64

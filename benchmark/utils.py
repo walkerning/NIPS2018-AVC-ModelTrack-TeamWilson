@@ -45,10 +45,10 @@ def substitute_argscope(_callable, dct):
 
 dataset_dct = {
     "tiny-imagenet": {"shape": (64, 64, 3), "channel_axis": -1},
-    "cifar10": {"shape": (3, 32, 32), "channel_axis": 0}
+    "cifar10": {"shape": (32, 32, 3), "channel_axis": -1}
 }
 class ImageReader(object):
-    available_methods = ["npy", "img"]
+    available_methods = ["npy", "img", "bin"]
     def __init__(self, tp, dataset="tiny-imagenet"):
         assert tp in self.available_methods
         self.tp = tp
@@ -69,6 +69,8 @@ class ImageReader(object):
         img_path = os.path.join(input_folder, key)
         if self.tp == "npy":
             image = np.load(img_path)
+        elif self.tp == "bin":
+            image = np.fromfile(img_path, dtype=np.uint8).reshape(self.shape)
         else:
             image = imread(img_path)
         assert image.dtype == np.uint8
