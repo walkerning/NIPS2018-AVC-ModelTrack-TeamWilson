@@ -89,6 +89,16 @@ class DistillTrainer(Trainer):
         if self.FLAGS.use_denoiser:
             AvailModels.add(self.model_stu.inner_model, self.model_stu.denoiser.denoise_output, self.logits_stu)
 
+        # additional test only models
+        self.additional_models = []
+        for i in range(len(self.FLAGS["additional_models"])):
+            m_cfg = self.FLAGS["additional_models"][i]
+            x = tf.placeholder(tf.float32, shape=[None] + self.dataset.image_shape, name="x_addi_{}".format(i))
+            model = QCNN.create_model(m_cfg)
+            logits = model.get_logits(x)
+            AvailModels.add(model, x, logits)
+            self.additional_models.append(model)
+
         if self.FLAGS.alpha != 0: # distill
             if not self.FLAGS.distill_self:
                 self.model_tea = QCNN.create_model(self.FLAGS["teacher"])
@@ -137,6 +147,8 @@ class DistillTrainer(Trainer):
             self.loss += at_loss * self.FLAGS.beta
         else:
             self.at_loss = tf.constant(0.0)
+        # Add regularization loss
+        self.loss += tf.losses.get_regularization_loss()
 
         self.index_label = tf.argmax(self.labels, -1)
         _tmp = tf.expand_dims(self.index_label, -1)
@@ -358,6 +370,8 @@ class DistillTrainer(Trainer):
                 self.model_stu.load_checkpoint([self.FLAGS.load_file_den, load_file_stu], self.sess, [self.FLAGS.load_namescope_den, load_namescope_stu], exclude_pattern=self.FLAGS.load_exclude)
             else:
                 self.model_stu.load_checkpoint(load_file_stu, self.sess, load_namescope_stu, exclude_pattern=self.FLAGS.load_exclude)
+            for m, l_namescope, l_file in zip(self.additional_models, [m_cfg["load_namescope"] for m_cfg in self.FLAGS.additional_models], [m_cfg["checkpoint"] for m_cfg in self.FLAGS.additional_models]):
+                m.load_checkpoint(l_file, self.sess, l_namescope)
             # Testing
             self.test(adv=True, name="test stu")
             if self.FLAGS.load_file_test: # additional student test models

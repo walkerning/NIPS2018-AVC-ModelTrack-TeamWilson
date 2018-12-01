@@ -143,10 +143,15 @@ class MutualTrainer(Trainer):
         for i in range(self.mutual_num):
             name_scope = namescope_lst[i]
             prob = prob_lst[i]
+            # mutual kl loss
             reshape_prob_placeholders = [tf.reshape(tf.tile(tf.expand_dims(prob_placeholder_lst[j], 1), [1, tf.shape(prob)[0] / batch_size, 1]), [-1, self.num_labels]) for j in range(self.mutual_num) if j != i]
             kl_losses = [tf.reduce_mean(tf.reduce_sum(rpph * (tf.log(rpph+1e-10) - tf.log(prob+1e-10)), axis=-1)) for rpph in reshape_prob_placeholders]
             kl_loss = tf.reduce_mean(kl_losses)
-            loss = self.FLAGS.theta * ce_loss_lst[i] + self.FLAGS.alpha * kl_loss
+            # regularization loss
+            reg_vs = [reg_v for reg_v in tf.losses.get_regularization_losses() if name_scope + "/" in reg_v.op.name]
+            reg_loss = tf.reduce_sum(reg_vs) if reg_vs else tf.constant(0.)
+
+            loss = self.FLAGS.theta * ce_loss_lst[i] + self.FLAGS.alpha * kl_loss + reg_loss
             kl_loss_lst.append(kl_loss)
             loss_lst.append(loss)
             optimizer = tf.train.MomentumOptimizer(self.learning_rate, momentum=0.9)

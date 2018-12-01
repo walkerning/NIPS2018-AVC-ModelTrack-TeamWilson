@@ -29,7 +29,7 @@ class Inception(QCNN):
             relu_ = tf.nn.relu(bn_, name=name_scope+"relu"+str(index_))
             return relu_
         inputs = inputs - tf.cast(tf.constant(self.substract_mean), tf.float32)
-        if self.div and not np.all(self.div == 1.):
+        if self.div is not None and not np.all(self.div == 1.):
             inputs = inputs / self.div
         ###stem
         c = conv_relu(inputs, 1, 32, (3, 3), 2)

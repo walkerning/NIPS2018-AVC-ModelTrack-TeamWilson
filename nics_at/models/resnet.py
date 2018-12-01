@@ -167,7 +167,7 @@ class Resnet(QCNN):
         # _B_MEAN = 103.94
         # _CHANNEL_MEANS = [_R_MEAN, _G_MEAN, _B_MEAN]
         inputs = inputs - tf.cast(tf.constant(self.substract_mean), tf.float32)
-        if self.div and not np.all(self.div == 1.):
+        if self.div is not None and not np.all(self.div == 1.):
             inputs = inputs / self.div
         weight_decay = self.weight_decay
         if self.data_format == 'channels_first':

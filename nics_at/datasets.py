@@ -171,7 +171,7 @@ class Dataset(object):
         random.shuffle(self.filenames_labels)
         filename_q = tf.train.input_producer(self.filenames_labels,
                                              num_epochs=self.gen_epochs * 4 if mode == "val" else self.gen_epochs,
-                                             shuffle=True,
+                                             shuffle=mode == "train",
                                              name="data_producer_" + mode)
 
         return tf.train.batch_join([self.read_image(filename_q, mode) for i in range(self.num_threads[mode])],

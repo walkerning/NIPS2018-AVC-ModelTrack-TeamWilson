@@ -5,10 +5,10 @@ import numpy as np
 
 from nics_at.models.base import QCNN
 
-class VGG11(QCNN):
-    TYPE = "vgg11"
+class VGG9(QCNN):
+    TYPE = "vgg9"
     def __init__(self, namescope, params={}):
-        super(VGG11, self).__init__(namescope, params)
+        super(VGG9, self).__init__(namescope, params)
         self.num_classes = params.get("num_classes", 200)
         self.substract_mean = params.get("substract_mean", [123.68, 116.78, 103.94])
         if isinstance(self.substract_mean, str):
@@ -45,15 +45,7 @@ class VGG11(QCNN):
         conv5_1, relu5_1 = conv_relu_pool(pool4, 7, 512, use_pool=False)
         conv5_2, relu5_2, pool5 = conv_relu_pool(relu5_1, 8, 512, use_pool=True)
         flat = tf.contrib.layers.flatten(pool5)
-        ip1 = tf.layers.dense(flat, units=2048/self.filter_size_div, name="ip1",
-                             kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
-                             kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay))
-        relu6 = tf.nn.relu(ip1, name="relu6")
-        ip2 = tf.layers.dense(relu6, units=2048/self.filter_size_div, name="ip2",
-                             kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
-                             kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay))
-        relu7 = tf.nn.relu(ip2, name="relu7")
-        logits = tf.layers.dense(relu7, units=self.num_classes, name="logits",
-                             kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
+        logits = tf.layers.dense(flat, units=self.num_classes, name="logits",
+                                 kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
                              kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay))
         return {"logits": logits}
