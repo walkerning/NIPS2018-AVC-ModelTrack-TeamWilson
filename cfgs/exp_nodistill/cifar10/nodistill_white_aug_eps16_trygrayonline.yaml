@@ -1,0 +1,95 @@
+## Model
+dataset: gray_cifar10
+
+model:
+  namescope: stu_
+  type: resnet18
+  model_params:
+    weight_decay: 0.0002
+    num_classes: 10 # cifar10
+    substract_mean: ./cifar10-bin/cifar10_mean.npy # cifar10, substract per pixel mean
+    div: 128.
+
+## Training
+num_threads:
+  train: 4
+  val: 2
+
+alpha: 0
+beta: 0
+theta: 1.0
+temperature: 1
+at_mode: attention
+
+test_frequency: 1
+epochs: 60
+batch_size: 128
+adjust_lr_acc:
+  type: ExpDecay
+  start_lr: 0.1
+  decay: 0.1
+  decay_every: 40
+
+## Aug
+aug_gaussian: [0.02, 0.1]
+aug_saltpepper: [0, 0.2]
+
+## Adversarial Aug
+train_merge_adv: true
+train_models: # iter train
+  stu_:
+    - id:
+      gid: normal
+    - gid: stu_whitebox
+      id: stu_whitebox
+    - id: __generated__
+      gid: __generated__vgg9_on_stu_gray
+
+test_models:
+  stu_:
+    - gid: stu_whitebox
+      id: stu_whitebox
+    - id: __generated__
+      gid: vgg9_on_stu_gray__generated__
+
+generated_adv: # pre-stored adv examples
+
+sync_every: 5
+additional_models_gray:
+  - type: vgg9
+    namescope: vgg9_base
+    load_namescope: stu_
+    checkpoint: baseline/vgg9/140
+    model_params:
+      num_classes: 10
+      substract_mean: [ 125.31 ,  122.96 ,  113.86]
+      div: [  51.59,   50.85 ,   51.26 ]
+      test_only: true
+  - type: resnet18
+    namescope: stu_gray
+    follow: stu_
+    model_params:
+      weight_decay: 0.0002
+      num_classes: 10
+      substract_mean: ./cifar10-bin/cifar10_mean.npy
+      div: 128.
+      test_only: true
+
+available_attacks_gray:
+  - id: vgg9_on_stu_gray
+    model: stu_gray
+    method: re_transfer_pgd
+    transfer: vgg9_base
+    attack_params:
+      eps: 50.0
+      eps_iter: 6.0
+      nb_iter: 10
+
+available_attacks:
+  - id: stu_whitebox
+    method: pgd
+    model: stu_
+    attack_params:
+      eps: 16.0
+      eps_iter: 1.0
+      nb_iter: 10

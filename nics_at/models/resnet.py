@@ -12,7 +12,7 @@ class Resnet(QCNN):
         super(Resnet, self).__init__(namescope, params)
 
         self.resnet_size = 18
-        
+
         self.block_fn = self._building_block_v2
         self.bottleneck = False
         self.data_format = ('channels_first' if tf.test.is_built_with_cuda() else 'channels_last')
@@ -169,7 +169,7 @@ class Resnet(QCNN):
         inputs = inputs - tf.cast(tf.constant(self.substract_mean), tf.float32)
         if self.div is not None and not np.all(self.div == 1.):
             inputs = inputs / self.div
-        weight_decay = self.weight_decay
+        # weight_decay = self.weight_decay
         if self.data_format == 'channels_first':
             # Convert the inputs from channels_last (NHWC) to channels_first (NCHW).
             # This provides a large performance boost on GPU. See

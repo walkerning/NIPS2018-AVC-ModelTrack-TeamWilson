@@ -16,6 +16,8 @@ class Inception(QCNN):
         self.div = np.array(params.get("div", [  51.59,   50.85 ,   51.26 ]))
 
     def _get_logits(self, inputs):
+        if self.test_only:
+            self.weight_decay = None
         inputs = inputs - tf.cast(tf.constant(self.substract_mean), tf.float32)
         if self.div is not None and not np.all(self.div == 1.):
             inputs = inputs / self.div

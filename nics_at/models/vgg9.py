@@ -23,7 +23,7 @@ class VGG9(QCNN):
                 filters_ = filters_ // self.filter_size_div
             conv_ = tf.layers.conv2d(input_, filters=filters_, kernel_size=(kernel_size_,kernel_size_),
              strides=(stride_,stride_), padding="same", use_bias=False,
-             kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay),
+             kernel_regularizer=None if self.test_only else tf.contrib.layers.l2_regularizer(scale=weight_decay),
              kernel_initializer=tf.contrib.layers.variance_scaling_initializer(), name=name_scope + "conv"+str(index_))
             bn_ = tf.contrib.layers.batch_norm(conv_, is_training=self.training, scale=True,
                  scope=name_scope+"bn"+str(index_), decay=0.9)
@@ -47,5 +47,5 @@ class VGG9(QCNN):
         flat = tf.contrib.layers.flatten(pool5)
         logits = tf.layers.dense(flat, units=self.num_classes, name="logits",
                                  kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
-                             kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay))
+                                 kernel_regularizer=None if self.test_only else tf.contrib.layers.l2_regularizer(scale=weight_decay))
         return {"logits": logits}

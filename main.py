@@ -59,7 +59,7 @@ else:
 utils.log = utils.get_log_func(args.log_file)
 utils.log("CMD: ", " ".join(sys.argv))
 if not args.test_only and not args.train_dir:
-    log("WARNING: model will not be saved if `--train_dir` option is not given.")
+    utils.log("WARNING: model will not be saved if `--train_dir` option is not given.")
 trainer = trainers[args.trainer_type](args, config)
 trainer.init()
 trainer.start()

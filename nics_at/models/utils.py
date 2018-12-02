@@ -5,7 +5,7 @@ import tensorflow as tf
 def conv_relu(input_, index_, filters_, kernel_size_=(3, 3), stride_=2, name_scope="", weight_decay=0., training=False):
     conv_ = tf.layers.conv2d(input_, filters=filters_, kernel_size=kernel_size_,
                              strides=(stride_, stride_), padding="same", use_bias=False,
-                             kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay),
+                             kernel_regularizer=None if weight_decay is None else tf.contrib.layers.l2_regularizer(scale=weight_decay),
                              kernel_initializer=tf.contrib.layers.variance_scaling_initializer(), name=name_scope+"conv"+str(index_))
     bn_ = tf.contrib.layers.batch_norm(conv_, is_training=training, scale=True,
                                        scope=name_scope+"bn"+str(index_), decay=0.9)

@@ -4,7 +4,6 @@ import contextlib
 
 import numpy as np
 
-from cleverhans.model import Model
 import cleverhans.attacks
 import foolbox
 import foolbox.distances
@@ -13,9 +12,10 @@ from foolbox.models import TensorFlowModel
 
 from nics_at import utils
 from nics_at.utils import AvailModels, profiling
-from pgd_variants import MadryEtAl_L2, MadryEtAl_transfer, MadryEtAl_KLloss
+from pgd_variants import MadryEtAl_L2, MadryEtAl_transfer, MadryEtAl_transfer_re, MadryEtAl_KLloss
 cleverhans.attacks.MadryEtAl_L2 = MadryEtAl_L2
 cleverhans.attacks.MadryEtAl_transfer = MadryEtAl_transfer
+cleverhans.attacks.MadryEtAl_transfer_re = MadryEtAl_transfer_re
 cleverhans.attacks.MadryEtAl_KLloss = MadryEtAl_KLloss
 
 @contextlib.contextmanager
@@ -33,7 +33,7 @@ def substitute_argscope(_callable, dct):
 
 class AttackGenerator(object):
     def __init__(self, generate_cfg, merge=False, split_adv=False, random_split_adv=False,
-                 random_interp=None, random_interp_adv=None, use_cache=False, 
+                 random_interp=None, random_interp_adv=None, use_cache=False,
                  mixup_alpha=1.0, name=""):
         self.name = name
         self.cfg = generate_cfg
@@ -82,9 +82,7 @@ class AttackGenerator(object):
             normal_x = x
             normal_y = y
             if a.get("mixup", False): # pre-mixup normal x,y before attack
-                # FIXME: for now, only mixup auged normal examples, not generated black-box adv examples; 
-                #      if black-box adv examples need mixup, maybe this functionality should be moved into AttackGenerator,
-                #      together with interp_adv or interp which generate examples that interpolate between the adv examples and the normal example of the same data point.
+                # FIXME: for now, only mixup auged normal examples, not generated black-box adv examples;
                 # NOTE: now, sample-level interpolation, can try batch-level too; only pre-mixup, not post-pixup now
                 if mixup_x is None and mixup_y is None: # not cached mixup_x, mixup_y
                     # calculate mixup_x and mixup_y
@@ -138,7 +136,8 @@ class AttackGenerator(object):
                     ys.append(y)
                     keys.append("random_interp_advs")
             else: # if __generated__ not in key, generate white-box adversarials
-                if self.use_cache and key in self.batch_cache: # white-box attack is the bottleneck of adversarial generation, use cache
+                # white-box attack is the bottleneck of adversarial generation, use cache when needed
+                if self.use_cache and key in self.batch_cache:
                     adv_x = self.batch_cache[key]
                 else:
                     adv_x = Attack.get_attack(a["id"]).generate(normal_x, normal_y)
@@ -198,7 +197,7 @@ class AttackGenerator(object):
             elif self.meet_conds(acfg.get("conds", [])):
                 choosed.append(acfg)
         return choosed
-        
+
 class Attack(object):
     registry = {}
 
@@ -218,6 +217,11 @@ class Attack(object):
         atk = globals()[_type.capitalize() + "Attack"](sess, cfg)
         cls.registry[atk.cfg["id"]] = atk
         return atk
+
+    def generate_tensor(self, x, y, params={}):
+        t_params = {k: v for k, v in self.default_params.iteritems()}
+        t_params.update(params)
+        return self._generate_tensor(x, y, t_params)
 
     def generate(self, x, y, params={}):
         t_params = {k: v for k, v in self.default_params.iteritems()}
@@ -250,6 +254,10 @@ class FoolboxAttack(Attack):
         criterion = foolbox.criteria.Misclassification()
         self.attack = getattr(foolbox.attacks, self.attack_methods[cfg["method"]])(self.attack_model, criterion)
 
+    def _generate_tensor(self, x, y, params):
+        # not implemented
+        raise Exception("Not implemented")
+
     def _generate(self, x_v, y_v, params):
         with substitute_argscope(foolbox.Adversarial, {"distance": foolbox.distances.Linf}):
             advs = [self.attack(sx_v, np.argmax(sy_v), binary_search=False, **params) for sx_v, sy_v in zip(x_v, y_v)]
@@ -264,6 +272,7 @@ class CleverhansAttack(Attack):
         "cw": "CarliniWagnerL2",
         "pgd": "MadryEtAl",
         "transfer_pgd": "MadryEtAl_transfer",
+        "re_transfer_pgd": "MadryEtAl_transfer_re",
         "l2_pgd": "MadryEtAl_L2",
         "momentum_pgd": "MomentumIterativeMethod",
         "kl_vat": "MadryEtAl_KLloss" # https://github.com/takerum/vat
@@ -274,6 +283,9 @@ class CleverhansAttack(Attack):
             self.attack = getattr(cleverhans.attacks, self.attack_methods[self.cfg["method"]])(AvailModels.get_model(self.cfg["model"]), AvailModels.get_model(self.cfg["transfer"]), sess=sess)
         else:
             self.attack = getattr(cleverhans.attacks, self.attack_methods[self.cfg["method"]])(AvailModels.get_model(self.cfg["model"]), sess=sess)
+
+    def _generate_tensor(self, x, y, params):
+        return self.attack.generate(x, y=y, **params)
 
     @profiling
     def _generate(self, x_v, y_v, params):

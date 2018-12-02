@@ -1,11 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-This is an example of training cifar10.
-
-Hyper-parameters for training VGG11 follows https://github.com/chengyangfu/pytorch-vgg-cifar10/blob/master/main.py
-
-**NOTE**: To run this script, you should install keras, as the data handling utils is from keras.
-"""
 
 from __future__ import division
 from __future__ import print_function
@@ -16,13 +9,25 @@ import glob
 import random
 import numpy as np
 
-from imgaug import augmenters as iaa
 import tensorflow as tf
 
 from nics_at import utils
 
 class Dataset(object):
-    def __init__(self, batch_size, epochs, aug_saltpepper, aug_gaussian, generated_adv=[], num_threads=2, capacity=1024, more_augs=False, test_path=None, dataset_info={}):
+    def __init__(self, FLAGS):
+    # def __init__(self, batch_size, epochs, aug_saltpepper, aug_gaussian, generated_adv=[], num_threads=2, capacity=1024, more_augs=False, test_path=None, dataset_info={}):
+        self.FLAGS = FLAGS
+        batch_size = FLAGS.batch_size
+        epochs = FLAGS.epochs
+        aug_saltpepper = FLAGS.aug_saltpepper
+        aug_gaussian = FLAGS.aug_gaussian
+        generated_adv = FLAGS.generated_adv
+        num_threads = FLAGS.num_threads
+        capacity = FLAGS.capacity
+        more_augs = FLAGS.more_augs
+        test_path = FLAGS.test_path
+        dataset_info = FLAGS.dataset_info
+
         self.dataset_info = dataset_info
         self.batch_size = batch_size
         if isinstance(num_threads, int):
@@ -41,6 +46,7 @@ class Dataset(object):
         self.test_path = test_path
         self.more_augs = more_augs
         if self.more_augs:
+            from imgaug import augmenters as iaa
             rarely = lambda aug: iaa.Sometimes(0.1, aug)
             sometimes = lambda aug: iaa.Sometimes(0.25, aug)
             often = lambda aug: iaa.Sometimes(0.5, aug)
@@ -142,7 +148,7 @@ class Dataset(object):
                         sometimes(
                             iaa.ElasticTransformation(alpha=(0.5, 1.5), sigma=0.25)
                         ),
-            
+
                     ], random_order=True),
                     iaa.Fliplr(0.5),
                     iaa.AddToHueAndSaturation(value=(-10, 10), per_channel=True)
@@ -153,14 +159,27 @@ class Dataset(object):
             self.more_aug = aug
         self.label_dict, self.class_description = self.build_label_dicts()
         self._gen = False
-    
+
+    def start(self, sess):
+        self.sess = sess
+        # Start the queue runner!
+        self.coord = tf.train.Coordinator()
+        self.threads = tf.train.start_queue_runners(sess=self.sess, coord=self.coord)
+
+    def sync_epoch(self, epoch):
+        pass
+
+    def end(self):
+        self.coord.request_stop()
+        self.coord.join(self.threads)
+
     def batch_q(self, mode):
         """Return batch of images using filename Queue
-    
+
         Args:
             mode: 'train' or 'val'
             config: training configuration object
-    
+
         Returns:
             imgs: tf.uint8 tensor [batch_size, height, width, channels]
             auged_img: tf.uint8 tensor [batch_size, height, width, channels]
@@ -171,7 +190,7 @@ class Dataset(object):
         random.shuffle(self.filenames_labels)
         filename_q = tf.train.input_producer(self.filenames_labels,
                                              num_epochs=self.gen_epochs * 4 if mode == "val" else self.gen_epochs,
-                                             shuffle=mode == "train",
+                                             shuffle=mode=="train",
                                              name="data_producer_" + mode)
 
         return tf.train.batch_join([self.read_image(filename_q, mode) for i in range(self.num_threads[mode])],
@@ -186,7 +205,7 @@ class Dataset(object):
             with tf.device('/cpu:0'):
                 self.imgs_t, self.auged_imgs_t, self.labels_t, self.adv_imgs_t = self.batch_q("train")
                 self.imgs_v, self.auged_imgs_v, self.labels_v, self.adv_imgs_v = self.batch_q("val")
-    
+
             self.labels_t = tf.one_hot(self.labels_t, self.num_labels)
             self.labels_v = tf.one_hot(self.labels_v, self.num_labels)
         return (self.imgs_t, self.auged_imgs_t, self.labels_t, self.adv_imgs_t), (self.imgs_v, self.auged_imgs_v, self.labels_v, self.adv_imgs_v)
@@ -215,7 +234,7 @@ class TinyImageNetDataset(Dataset):
                     match = re.search(r'n\d+', filename)
                     label = str(self.label_dict[match.group()])
                     filename_label = [filename, label, "1"]
-                    # FIXME: for imgnet1k examples, we do not have time to generate blackbox adversarials
+                    # for imgnet1k examples, we do not have time to generate blackbox adversarials
                     filename_label += [os.path.join(adv_cfg["path"], mode, os.path.basename(filename).split(".")[0] + "." + adv_cfg["suffix"]) for adv_cfg in self.generated_adv] # will not use
                     filenames_labels.append(tuple(filename_label))
         elif mode == 'val':
@@ -242,26 +261,26 @@ class TinyImageNetDataset(Dataset):
                 desc = desc[:-1]  # remove \n
                 if synset in label_dict:
                     class_description[label_dict[synset]] = desc
-    
+
         return label_dict, class_description
-    
+
     def read_image(self, filename_q, mode):
         """Load next jpeg file from filename / label queue
-        Randomly applies distortions if mode == 'train' (including a 
+        Randomly applies distortions if mode == 'train' (including a
         random crop to [56, 56, 3]). Standardizes all images.
-    
+
         Args:
             filename_q: Queue with 2 columns: filename string and label string.
              filename string is relative path to jpeg file. label string is text-
              formatted integer between '0' and '199'
             mode: 'train' or 'val'
-    
+
         Returns:
-            [img, label]: 
+            [img, label]:
                 img = tf.uint8 tensor [height, width, channels]  (see tf.image.decode.jpeg())
                 label = tf.unit8 target class label: {0 .. 199}
         """
-    
+
         item = filename_q.dequeue()
         filename = item[0]
         label = item[1]
@@ -354,7 +373,7 @@ class Cifar10Dataset(Dataset):
         label_dict = {n: i for i, n in enumerate(["airplane", "automobile", "bird", "cat", "deer", "dog", "frog", "horse", "ship", "truck"])}
         class_description = {}
         return label_dict, class_description
-    
+
     def read_image(self, filename_q, mode):
         item = filename_q.dequeue()
         filename = item[0]
@@ -399,9 +418,13 @@ class Cifar10Dataset(Dataset):
         adv_imgs = tf.reshape(tf.stack(adv_imgs), (self.generated_adv_num, 32, 32, 3))
         return [img, auged_img, label, adv_imgs]
 
+from gray_datasets import GrayCifar10Dataset, GrayTIDataset
+
 type_dataset_map = {
     "cifar10": Cifar10Dataset,
-    "tinyimagenet": TinyImageNetDataset
+    "tinyimagenet": TinyImageNetDataset,
+    "gray_cifar10": GrayCifar10Dataset,
+    "gray_tinyimagenet": GrayTIDataset
 }
 
 def get_dataset_cls(type_):

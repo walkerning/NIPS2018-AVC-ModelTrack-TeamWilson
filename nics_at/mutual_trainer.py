@@ -50,7 +50,7 @@ class MutualTrainer(Trainer):
             # Augmentaion
             "aug_saltpepper": None,
             "aug_gaussian": None,
-            
+
             # Adversarial Augmentation
             "available_attacks": [],
             "use_cache": False, # whether attack generator cached adversarial for every batch
@@ -301,8 +301,8 @@ class MutualTrainer(Trainer):
                 })
                 info_lst_v = []
                 for mi in range(self.mutual_num):
-                    # **FIXME**: using mutual trainer with mixup might not be so correct now; 
-                    # mixuped auged/adv should use the prob of mixuped auged/non-auged normal to guide; 
+                    # **FIXME**: using mutual trainer with mixup might not be so correct now;
+                    # mixuped auged/adv should use the prob of mixuped auged/non-auged normal to guide;
                     # but black-box-generated do not support mixup now, so must use the prob of ori auged/non-auged normal to guide...
                     # 1. support black-box-mixup and maybe the beta distribution should encourage sparsity more? beta(1,1) is so flat, maybe the black-box will not work that well....
                     # 2. feed-forward to the prob using both mixed-up and non mixed-up, for mixedup data(normal/whitebox) and non-mixed up data(blackbox) respectively... this will further slow down the mutual trainer...
@@ -368,7 +368,7 @@ class MutualTrainer(Trainer):
                                                  sess.graph)
         sess.run(tf.group(tf.global_variables_initializer(), tf.local_variables_initializer()))
         coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(sess=sess, coord=coord)    
+        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
         if not self.FLAGS.load_namescope:
             load_namescopes = [""] * self.mutual_num
         elif len(self.FLAGS.load_namescope) == 1:
@@ -383,7 +383,6 @@ class MutualTrainer(Trainer):
             load_files = self.FLAGS.load_file
         load_files += [m_cfg["checkpoint"] for m_cfg in self.FLAGS["additional_models"]]
         load_namescopes += [m_cfg["load_namescope"] for m_cfg in self.FLAGS["additional_models"]]
-        add_namescope_lst = [m_cfg["namescope"] for m_cfg in self.FLAGS["additional_models"]]
         if load_files:
             assert len(load_files) == self.mutual_num + len(self.FLAGS.additional_models)
             for m, l_namescope, l_file in zip(self.model_lst, load_namescopes, load_files):
@@ -403,7 +402,7 @@ class MutualTrainer(Trainer):
 
         if not self.FLAGS.no_init_test:
             # assign this threshold value to model_stu.relu_thresh variable for initial test
-            if self.FLAGS.relu_thresh_schedule is not None: 
+            if self.FLAGS.relu_thresh_schedule is not None:
                 sess.run(tf.assign(self.model_stu.relu_thresh, self.FLAGS.relu_thresh_schedule["start_lr"]))
             if self.FLAGS.test_saltpepper is not None:
                 if isinstance(self.FLAGS.test_saltpepper, (tuple, list)):
