@@ -410,7 +410,7 @@ class Cifar10Dataset(Dataset):
         label = tf.cast(label, tf.uint8)
         adv_imgs = []
         for i in range(self.generated_adv_num):
-            adv_filename = item[i+3]
+            adv_filename = item[i+2]
             file = tf.read_file(adv_filename)
             data = tf.decode_raw(file, out_type=tf.uint8)
             data = tf.cast(tf.reshape(data, (32, 32, 3)), tf.float32)
