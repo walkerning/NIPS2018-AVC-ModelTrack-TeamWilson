@@ -24,6 +24,7 @@ class MutualTrainer(Trainer):
             # Dataset
             "dataset": "tinyimagenet",
             "dataset_info": {},
+            "capacity": 1024,
             "num_threads": 2,
             "more_augs": False,
 

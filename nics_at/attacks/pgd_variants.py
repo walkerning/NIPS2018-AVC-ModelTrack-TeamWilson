@@ -154,12 +154,12 @@ class MadryEtAl_transfer_re(MadryEtAl_transfer): # transfer and return early
         predict = tf.argmax(self.model.get_logits(x), axis=-1)
 
         # 1. Using tf.while_loop
-        while_condition = lambda eta_, predict_, iter_: tf.logical_and(iter_<self.nb_iter, tf.squeeze(tf.equal(predict_, y_label)))
-        def body(eta_, _, iter_):
-            eta = self.attack_single_step(x, eta_, y)
-            predict = tf.argmax(self.model.get_logits(x + eta), axis=-1)
-            return [eta, predict, tf.add(iter_, 1)]
-        eta, _, _ = tf.while_loop(while_condition, body, [eta, predict, 0])
+        # while_condition = lambda eta_, predict_, iter_: tf.logical_and(iter_<self.nb_iter, tf.squeeze(tf.equal(predict_, y_label)))
+        # def body(eta_, _, iter_):
+        #     eta = self.attack_single_step(x, eta_, y)
+        #     predict = tf.argmax(self.model.get_logits(x + eta), axis=-1)
+        #     return [eta, predict, tf.add(iter_, 1)]
+        # eta, _, _ = tf.while_loop(while_condition, body, [eta, predict, 0])
 
         # 2. Construct for nb_iter runs using tf.cond every iter; consistent with the style of other cleverhans attacks
         # def next_step_eta(eta_):
@@ -175,6 +175,18 @@ class MadryEtAl_transfer_re(MadryEtAl_transfer): # transfer and return early
         # for iter_ in range(self.nb_iter):
         #     still_correct = tf.squeeze(tf.equal(predict, y_label))
         #     eta, predict = tf.cond(still_correct, next_step_eta(eta), return_straight(eta, predict))
+
+        # 3. Support batch_size > 1; it seems there are redundant calculation, but it will be actually more efficient as it can utilize the parallel computing power
+        def next_step_eta(eta_):
+            eta = self.attack_single_step(x, eta_, y)
+            predict = tf.argmax(self.model.get_logits(x + eta), axis=-1)
+            return [eta, predict]
+
+        for iter_ in range(self.nb_iter):
+            still_correct = tf.equal(predict, y_label)
+            new_eta, new_predict = next_step_eta(eta)
+            eta = tf.where(still_correct, new_eta, eta)
+            predict = tf.where(still_correct, new_predict, predict)
 
         adv_x = x + eta
         if self.clip_min is not None and self.clip_max is not None:
