@@ -24,6 +24,7 @@ class MutualTrainer(Trainer):
             # Dataset
             "dataset": "tinyimagenet",
             "dataset_info": {},
+            "capacity": 1024,
             "num_threads": 2,
             "more_augs": False,
 
@@ -50,11 +51,13 @@ class MutualTrainer(Trainer):
             # Augmentaion
             "aug_saltpepper": None,
             "aug_gaussian": None,
-            
+
             # Adversarial Augmentation
             "available_attacks": [],
+            "use_cache": False, # whether attack generator cached adversarial for every batch
             "generated_adv": [],
             "train_models": {},
+            "update_per_batch": 1, # this configuration is deprecating...
             "train_merge_adv": False,
             "split_adv": False,
             "test_split_adv": False,
@@ -73,10 +76,11 @@ class MutualTrainer(Trainer):
     def init(self):
         self.mutual_num = len(self.FLAGS["models"])
         batch_size = self.FLAGS.batch_size
+        self.num_labels = self.dataset.num_labels
 
         (self.imgs_t, self.auged_imgs_t, self.labels_t, self.adv_imgs_t), (self.imgs_v, self.auged_imgs_v, self.labels_v, self.adv_imgs_v) = self.dataset.data_tensors
 
-        self.labels = tf.placeholder(tf.float32, [None, 200], name="labels")
+        self.labels = tf.placeholder(tf.float32, [None, self.num_labels], name="labels")
         model_lst = [QCNN.create_model(m_cfg) for m_cfg in self.FLAGS["models"]]
         input_holder_lst = []
         saver_lst = []
@@ -90,15 +94,15 @@ class MutualTrainer(Trainer):
         accuracy_lst = []
         namescope_lst = [m_cfg["namescope"] for m_cfg in self.FLAGS["models"]]
         for i in range(self.mutual_num):
-            x = tf.placeholder(tf.float32, shape=[None, 64, 64, 3], name="x_{}".format(i))
-            prob_ph = tf.placeholder(tf.float32, shape=[None, 200], name="prob_placeholder_{}".format(i))
+            x = tf.placeholder(tf.float32, shape=[None] + list(self.dataset.image_shape), name="x_{}".format(i))
+            prob_ph = tf.placeholder(tf.float32, shape=[None, self.dataset.num_labels], name="prob_placeholder_{}".format(i))
             name_scope = namescope_lst[i]
             model = model_lst[i]
             training = model.get_training_status()
             logits = model.get_logits(x)
             prob = tf.nn.softmax(logits)
             # reshape_labels = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tf.shape(logits)[0] / batch_size, 1]), [-1, 200])
-            reshape_labels = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tf.shape(logits)[0] / tf.shape(self.labels)[0], 1]), [-1, 200])
+            reshape_labels = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tf.shape(logits)[0] / tf.shape(self.labels)[0], 1]), [-1, self.num_labels])
             ce_loss = tf.reduce_mean(
                 tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=logits))
 
@@ -123,7 +127,7 @@ class MutualTrainer(Trainer):
         # additional test only models
         for i in range(len(self.FLAGS["additional_models"])):
             m_cfg = self.FLAGS["additional_models"][i]
-            x = tf.placeholder(tf.float32, shape=[None, 64, 64, 3], name="x_addi_{}".format(i))
+            x = tf.placeholder(tf.float32, shape=[None] + self.dataset.image_shape, name="x_addi_{}".format(i))
             model = QCNN.create_model(m_cfg)
             logits = model.get_logits(x)
             AvailModels.add(model, x, logits)
@@ -140,10 +144,15 @@ class MutualTrainer(Trainer):
         for i in range(self.mutual_num):
             name_scope = namescope_lst[i]
             prob = prob_lst[i]
-            reshape_prob_placeholders = [tf.reshape(tf.tile(tf.expand_dims(prob_placeholder_lst[j], 1), [1, tf.shape(prob)[0] / batch_size, 1]), [-1, 200]) for j in range(self.mutual_num) if j != i]
+            # mutual kl loss
+            reshape_prob_placeholders = [tf.reshape(tf.tile(tf.expand_dims(prob_placeholder_lst[j], 1), [1, tf.shape(prob)[0] / batch_size, 1]), [-1, self.num_labels]) for j in range(self.mutual_num) if j != i]
             kl_losses = [tf.reduce_mean(tf.reduce_sum(rpph * (tf.log(rpph+1e-10) - tf.log(prob+1e-10)), axis=-1)) for rpph in reshape_prob_placeholders]
             kl_loss = tf.reduce_mean(kl_losses)
-            loss = self.FLAGS.theta * ce_loss_lst[i] + self.FLAGS.alpha * kl_loss
+            # regularization loss
+            reg_vs = [reg_v for reg_v in tf.losses.get_regularization_losses() if name_scope + "/" in reg_v.op.name]
+            reg_loss = tf.reduce_sum(reg_vs) if reg_vs else tf.constant(0.)
+
+            loss = self.FLAGS.theta * ce_loss_lst[i] + self.FLAGS.alpha * kl_loss + reg_loss
             kl_loss_lst.append(kl_loss)
             loss_lst.append(loss)
             optimizer = tf.train.MomentumOptimizer(self.learning_rate, momentum=0.9)
@@ -191,13 +200,15 @@ class MutualTrainer(Trainer):
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
         self.sess = tf.Session(config=config)
-        [Attack.create_attack(self.sess, a_cfg) for a_cfg in self.FLAGS["available_attacks"]]
+        [Attack.create_attack(self.sess, a_cfg) for a_cfg in (self.FLAGS["available_attacks"] or [])]
         self.train_attack_gen = AttackGenerator(self.FLAGS["train_models"], merge=self.FLAGS.train_merge_adv,
                                                 split_adv=self.FLAGS.split_adv, random_split_adv=self.FLAGS.random_split_adv,
                                                 random_interp=self.FLAGS.random_interp, random_interp_adv=self.FLAGS.random_interp_adv,
+                                                use_cache=self.FLAGS.use_cache,
                                                 mixup_alpha=self.FLAGS.mixup_alpha, name="train")
         self.test_attack_gen = AttackGenerator(self.FLAGS["test_models"],
                                                split_adv=self.FLAGS.test_split_adv, random_interp_adv=self.FLAGS.test_random_interp_adv,
+                                               use_cache=self.FLAGS.use_cache,
                                                name="test")
 
     def test(self, saltpepper=None, adv=False, name=""):
@@ -291,8 +302,8 @@ class MutualTrainer(Trainer):
                 })
                 info_lst_v = []
                 for mi in range(self.mutual_num):
-                    # **FIXME**: using mutual trainer with mixup might not be so correct now; 
-                    # mixuped auged/adv should use the prob of mixuped auged/non-auged normal to guide; 
+                    # **FIXME**: using mutual trainer with mixup might not be so correct now;
+                    # mixuped auged/adv should use the prob of mixuped auged/non-auged normal to guide;
                     # but black-box-generated do not support mixup now, so must use the prob of ori auged/non-auged normal to guide...
                     # 1. support black-box-mixup and maybe the beta distribution should encourage sparsity more? beta(1,1) is so flat, maybe the black-box will not work that well....
                     # 2. feed-forward to the prob using both mixed-up and non mixed-up, for mixedup data(normal/whitebox) and non-mixed up data(blackbox) respectively... this will further slow down the mutual trainer...
@@ -358,7 +369,7 @@ class MutualTrainer(Trainer):
                                                  sess.graph)
         sess.run(tf.group(tf.global_variables_initializer(), tf.local_variables_initializer()))
         coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(sess=sess, coord=coord)    
+        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
         if not self.FLAGS.load_namescope:
             load_namescopes = [""] * self.mutual_num
         elif len(self.FLAGS.load_namescope) == 1:
@@ -373,7 +384,6 @@ class MutualTrainer(Trainer):
             load_files = self.FLAGS.load_file
         load_files += [m_cfg["checkpoint"] for m_cfg in self.FLAGS["additional_models"]]
         load_namescopes += [m_cfg["load_namescope"] for m_cfg in self.FLAGS["additional_models"]]
-        add_namescope_lst = [m_cfg["namescope"] for m_cfg in self.FLAGS["additional_models"]]
         if load_files:
             assert len(load_files) == self.mutual_num + len(self.FLAGS.additional_models)
             for m, l_namescope, l_file in zip(self.model_lst, load_namescopes, load_files):
@@ -393,7 +403,7 @@ class MutualTrainer(Trainer):
 
         if not self.FLAGS.no_init_test:
             # assign this threshold value to model_stu.relu_thresh variable for initial test
-            if self.FLAGS.relu_thresh_schedule is not None: 
+            if self.FLAGS.relu_thresh_schedule is not None:
                 sess.run(tf.assign(self.model_stu.relu_thresh, self.FLAGS.relu_thresh_schedule["start_lr"]))
             if self.FLAGS.test_saltpepper is not None:
                 if isinstance(self.FLAGS.test_saltpepper, (tuple, list)):
@@ -416,3 +426,5 @@ class MutualTrainer(Trainer):
 
         parser.add_argument("--load-exclude", metavar="PATTERN", action="append", default=[],
                             help="Exclude variables container PATTERN while loading from checkpoint")
+
+        parser.add_argument("--scratch", action="store_true", help="training a model from scratch") # this argument is not need in mutual

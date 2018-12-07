@@ -12,7 +12,7 @@ import tensorflow as tf
 
 from models import QCNN
 import utils
-from utils import AvailModels, LrAdjuster, get_schedule_value
+from utils import AvailModels, LrAdjuster
 from attacks import Attack, AttackGenerator
 from base_trainer import settings, Trainer
 
@@ -26,7 +26,13 @@ class DistillTrainer(Trainer):
             "dataset": "tinyimagenet",
             "dataset_info": {},
             "num_threads": 2,
+            "capacity": 1024,
             "more_augs": False,
+            # only use when using subclass of GrayDataset
+            "gray_dataset_device": 1,
+            "sync_every": 5,
+            "additional_models_gray": [],
+            "available_attacks_gray": [],
 
             # Training
             "mixup_alpha": 1.0,
@@ -53,7 +59,7 @@ class DistillTrainer(Trainer):
             # Augmentaion
             "aug_saltpepper": None,
             "aug_gaussian": None,
-            
+
             # Adversarial Augmentation
             "available_attacks": [],
             "generated_adv": [],
@@ -73,20 +79,31 @@ class DistillTrainer(Trainer):
         assert self.FLAGS.distill_loss_type in {"crossentropy", "gaussian"}
 
     def init(self):
-        batch_size = self.FLAGS.batch_size # default to 128
+        # batch_size = self.FLAGS.batch_size # default to 128
+        self.num_labels = self.dataset.num_labels
 
         (self.imgs_t, self.auged_imgs_t, self.labels_t, self.adv_imgs_t), (self.imgs_v, self.auged_imgs_v, self.labels_v, self.adv_imgs_v) = self.dataset.data_tensors
         utils.log("Train number: {}; Validation number: {}".format(self.dataset.train_num, self.dataset.val_num))
 
-        self.x = tf.placeholder(tf.float32, shape=[None, 64, 64, 3], name="x")
-        self.stu_x = tf.placeholder(tf.float32, shape=[None, 64, 64, 3], name="stu_x")
-        self.labels = tf.placeholder(tf.float32, [None, 200], name="labels")
+        self.x = tf.placeholder(tf.float32, shape=[None] + list(self.dataset.image_shape), name="x")
+        self.stu_x = tf.placeholder(tf.float32, shape=[None] + list(self.dataset.image_shape), name="stu_x")
+        self.labels = tf.placeholder(tf.float32, [None, self.dataset.num_labels], name="labels")
 
         self.model_stu = QCNN.create_model(self.FLAGS["model"])
         self.logits_stu = self.model_stu.get_logits(self.stu_x)
         AvailModels.add(self.model_stu, self.stu_x, self.logits_stu)
         if self.FLAGS.use_denoiser:
             AvailModels.add(self.model_stu.inner_model, self.model_stu.denoiser.denoise_output, self.logits_stu)
+
+        # additional test only models
+        self.additional_models = []
+        for i in range(len(self.FLAGS["additional_models"])):
+            m_cfg = self.FLAGS["additional_models"][i]
+            x = tf.placeholder(tf.float32, shape=[None] + self.dataset.image_shape, name="x_addi_{}".format(i))
+            model = QCNN.create_model(m_cfg)
+            logits = model.get_logits(x)
+            AvailModels.add(model, x, logits)
+            self.additional_models.append(model)
 
         if self.FLAGS.alpha != 0: # distill
             if not self.FLAGS.distill_self:
@@ -103,17 +120,16 @@ class DistillTrainer(Trainer):
             tf.add_to_collection("trainable_variables", var)
 
         self.training_stu = self.model_stu.get_training_status()
-        
+
         # Loss and metrics
         # tile_num = tf.shape(self.logits_stu)[0]/batch_size
         tile_num = tf.shape(self.logits_stu)[0]/tf.shape(self.labels)[0]
         if self.FLAGS.alpha != 0:
-            # tile_num_tea = tf.shape(self.logits)[0]/batch_size
-            tile_num_tea = tf.shape(self.logits)[0]/tf.shape(self.labels)[0]
+            tile_num_tea = tf.shape(self.logits)[0]/tf.shape(self.labels)[0] # note teacher input batch size must be larger than label batch size
 
             soft_label = tf.nn.softmax(self.logits/self.FLAGS.temperature)
             soft_logits = self.logits_stu / self.FLAGS.temperature
-            reshape_soft_label = tf.reshape(tf.tile(tf.expand_dims(soft_label, 1), [1, tf.shape(soft_logits)[0]/tf.shape(soft_label)[0], 1]), [-1, 200])
+            reshape_soft_label = tf.reshape(tf.tile(tf.expand_dims(soft_label, 1), [1, tf.shape(soft_logits)[0]/tf.shape(soft_label)[0], 1]), [-1, self.num_labels])
             if self.FLAGS.distill_loss_type == "gaussian":
                 ce = tf.reduce_sum((tf.nn.softmax(soft_label) - tf.nn.softmax(soft_logits))**2, axis=-1)
             else:
@@ -125,7 +141,7 @@ class DistillTrainer(Trainer):
         else:
             self.distillation = tf.constant(0.0)
 
-        reshape_labels = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tile_num, 1]), [-1, 200])
+        reshape_labels = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tile_num, 1]), [-1, self.num_labels])
         self.original_loss = tf.reduce_mean(
             tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=self.logits_stu))
 
@@ -133,10 +149,13 @@ class DistillTrainer(Trainer):
         if self.FLAGS.alpha != 0:
             self.loss += self.distillation * self.FLAGS.alpha
         if self.FLAGS.beta != 0:
-            self.at_loss = get_at_loss(group_list_teacher, group_list_student)
-            self.loss += at_loss * self.FLAGS.beta
+            pass # not implemented, as we found this not very effective in initial exps
+            # self.at_loss = get_at_loss(group_list_teacher, group_list_student)
+            # self.loss += at_loss * self.FLAGS.beta
         else:
             self.at_loss = tf.constant(0.0)
+        # Add regularization loss
+        self.loss += tf.losses.get_regularization_loss()
 
         self.index_label = tf.argmax(self.labels, -1)
         _tmp = tf.expand_dims(self.index_label, -1)
@@ -179,8 +198,9 @@ class DistillTrainer(Trainer):
 
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
+        config.allow_soft_placement = True
         self.sess = tf.Session(config=config)
-        [Attack.create_attack(self.sess, a_cfg) for a_cfg in self.FLAGS["available_attacks"]]
+        [Attack.create_attack(self.sess, a_cfg) for a_cfg in (self.FLAGS["available_attacks"] or [])]
         self.train_attack_gen = AttackGenerator(self.FLAGS["train_models"], merge=self.FLAGS.train_merge_adv, split_adv=self.FLAGS.split_adv, random_split_adv=self.FLAGS.random_split_adv,
                                                 random_interp=self.FLAGS.random_interp, random_interp_adv=self.FLAGS.random_interp_adv, mixup_alpha=self.FLAGS.mixup_alpha, name="train")
         self.test_attack_gen = AttackGenerator(self.FLAGS["test_models"], split_adv=self.FLAGS.test_split_adv, random_interp_adv=self.FLAGS.test_random_interp_adv, name="test")
@@ -212,9 +232,14 @@ class DistillTrainer(Trainer):
             # Train batches
             gen_time = 0
             run_time = 0
+            fetch_time = 0
             for step in range(1, steps_per_epoch+1):
                 self.train_attack_gen.new_batch()
+
+                fetch_start_time = time.time()
                 x_v, auged_x_v, y_v, adv_x_v = sess.run([self.imgs_t, self.auged_imgs_t, self.labels_t, self.adv_imgs_t])
+                fetch_time += time.time() - fetch_start_time
+
                 gen_start_time = time.time()
                 _, adv_xs, ys = self.train_attack_gen.generate_for_model(auged_x_v, y_v, self.FLAGS.model["namescope"], adv_x_v)
                 gen_time += time.time() - gen_start_time
@@ -230,8 +255,8 @@ class DistillTrainer(Trainer):
                         self.x: x_v if not self.FLAGS.distill_use_auged else auged_x_v,
                         self.stu_x: adv_x,
                         self.training_stu: True,
-                        # self.labels: y_v,
-                        self.labels: s_y,
+                        self.labels: y_v,
+                        # self.labels: s_y, # only use this for mixup
                         self.learning_rate: actual_lr
                     }
                     if not self.FLAGS.multi_grad_accumulate:
@@ -247,12 +272,15 @@ class DistillTrainer(Trainer):
                     print("\rEpoch {}: steps {}/{} loss: {}/{}/{}".format(epoch, step, steps_per_epoch, *np.mean(inner_info_v, axis=0)[:3]), end="")
             gen_time = gen_time / steps_per_epoch
             run_time = run_time / steps_per_epoch
+            fetch_time = fetch_time / steps_per_epoch
             info_v_epoch /= steps_per_epoch
             duration = time.time() - start_time
             sec_per_batch = duration / steps_per_epoch
             loss_v_epoch, _, _, acc_stu_epoch, acc_tea_epoch = np.mean(inner_info_v, axis=0)
-            utils.log("\r{}: Epoch {}; (average) loss: {:.3f}; (average) student accuracy: {:.2f} %; (average) teacher accuracy: {:.2f} %. {:.3f} sec/batch; gen time: {:.3f} sec/batch; run time: {:.3f} sec/batch; {}"
-                      .format(datetime.now(), epoch, loss_v_epoch, acc_stu_epoch * 100, acc_tea_epoch * 100, sec_per_batch, gen_time, run_time, "" if not utils.PROFILING else "; ".join(["{}: {:.2f} ({:.3f} average) sec".format(k, t, t/num) for k, (num, t) in utils.all_profiled.iteritems()])), flush=True)
+            utils.log(("\r{}: Epoch {}; (average) loss: {:.3f}; (average) student accuracy: {:.2f} %; (average) teacher accuracy: {:.2f} %."
+                       " {:.3f} sec/batch; gen time: {:.3f} sec/batch; run time: {:.3f} sec/batch; fetch time: {:.3f} sec/batch; {}")
+                      .format(datetime.now(), epoch, loss_v_epoch, acc_stu_epoch * 100, acc_tea_epoch * 100, sec_per_batch, gen_time, run_time, fetch_time,
+                              "" if not utils.PROFILING else "; ".join(["{}: {:.2f} ({:.3f} average) sec".format(k, t, t/num) for k, (num, t) in utils.all_profiled.iteritems()])), flush=True)
             # End training batches
 
             # Test on the validation set
@@ -266,6 +294,7 @@ class DistillTrainer(Trainer):
                         save_path = os.path.join(self.FLAGS.train_dir, str(epoch))
                         self.model_stu.save_checkpoint(save_path, sess)
                         utils.log("Saved student model to: ", save_path)
+                self.dataset.sync_epoch(epoch)
 
     def test(self, saltpepper=None, adv=False, name=""):
         sess = self.sess
@@ -327,22 +356,21 @@ class DistillTrainer(Trainer):
         if adv:
             utils.log("\tAdv:\n\t\t{}".format("\n\t\t".join(["test {}: acc: {:.3f}; tea_acc: {:.3f}; ce_loss: {:.2f}; dist: {:.2f}".format(test_id, *(attack_res/steps_per_epoch)) for test_id, attack_res in test_res.items()])), flush=True)
         return [acc_v_epoch] + [v[0]/steps_per_epoch for v in test_res.values()]
-        
+
     def start(self):
         sess = self.sess
         if self.FLAGS.train_dir:
             train_writer = tf.summary.FileWriter(self.FLAGS.train_dir + '/train',
                                                  sess.graph)
         sess.run(tf.group(tf.global_variables_initializer(), tf.local_variables_initializer()))
-        coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(sess=sess, coord=coord)    
 
         if self.FLAGS.test_only:
             if not (self.FLAGS.load_file_stu or self.FLAGS.load_file_tea):
                 print("error: no input file. Must supply teacher model or stu model when testing.")
-                coord.request_stop()
-                coord.join(threads)
                 sys.exit(1)
+
+            self.dataset.start(sess)
+
             # Load teacher model
             if self.FLAGS.load_file_tea:
                 if self.FLAGS.alpha != 0:
@@ -358,49 +386,62 @@ class DistillTrainer(Trainer):
                 self.model_stu.load_checkpoint([self.FLAGS.load_file_den, load_file_stu], self.sess, [self.FLAGS.load_namescope_den, load_namescope_stu], exclude_pattern=self.FLAGS.load_exclude)
             else:
                 self.model_stu.load_checkpoint(load_file_stu, self.sess, load_namescope_stu, exclude_pattern=self.FLAGS.load_exclude)
+            for m, l_namescope, l_file in zip(self.additional_models, [m_cfg["load_namescope"] for m_cfg in self.FLAGS.additional_models], [m_cfg["checkpoint"] for m_cfg in self.FLAGS.additional_models]):
+                m.load_checkpoint(l_file, self.sess, l_namescope)
             # Testing
-            self.test(adv=True)
-            if self.FLAGS.test_saltpepper is not None:
-                if isinstance(FLAGS.test_saltpepper, (tuple, list)):
-                    for sp in FLAGS.test_saltpepper:
+            self.test(adv=True, name="test stu")
+            if self.FLAGS.load_file_test: # additional student test models
+                for i, test_model in enumerate(self.FLAGS.load_file_test):
+                    self.model_stu.load_checkpoint(test_model, self.sess, load_namescope_stu, exclude_pattern=self.FLAGS.load_exclude)
+                    self.test(adv=True, name="test additionan {} {}".format(i, os.path.basename(test_model)))
+            elif self.FLAGS.test_saltpepper is not None:
+                if isinstance(self.FLAGS.test_saltpepper, (tuple, list)):
+                    for sp in self.FLAGS.test_saltpepper:
                         self.test(saltpepper=sp, adv=False, name="saltpepper_{}".format(sp))
                 else:
-                    self.test(saltpepper=FLAGS.test_saltpepper, adv=False, name="saltpepper_{}".format(FLAGS.test_saltpepper))
-            coord.request_stop()
-            coord.join(threads)
+                    self.test(saltpepper=self.FLAGS.test_saltpepper, adv=False, name="saltpepper_{}".format(self.FLAGS.test_saltpepper))
+            self.dataset.end()
             sys.exit(0)
 
-        if ((not self.FLAGS.alpha or self.FLAGS.distill_self) and not self.FLAGS.load_file_stu) or ((self.FLAGS.alpha and not self.FLAGS.distill_self) and not self.FLAGS.load_file_tea):
-            print("error: no input file. Must supply teacher model for training with disstillation; or student model for training without distillation or distill self.")
-            coord.request_stop()
-            coord.join(threads)
+        # if not self.FLAGS.test_only
+        if not self.FLAGS.scratch and ((not self.FLAGS.alpha or self.FLAGS.distill_self) and not self.FLAGS.load_file_stu) or ((self.FLAGS.alpha and not self.FLAGS.distill_self) and not self.FLAGS.load_file_tea):
+            utils.log("error: no input file. Must supply teacher model for training with disstillation; or student model for training without distillation or distill self.")
             sys.exit(1)
         # Load teacher model
         if self.FLAGS.alpha != 0 and not self.FLAGS.distill_self:
             self.model_tea.load_checkpoint(self.FLAGS.load_file_tea, self.sess, self.FLAGS.load_namescope_tea)
-        if not self.FLAGS.load_file_stu:
-            load_namescope_stu = self.FLAGS["teacher"]["namescope"] if self.FLAGS.load_namescope_tea is None else self.FLAGS.load_namescope_tea
-            load_file_stu = self.FLAGS.load_file_tea
-        else:
-            load_namescope_stu = self.FLAGS.load_namescope_stu
-            load_file_stu = self.FLAGS.load_file_stu
-        # Load student model
-        if self.FLAGS.use_denoiser:
-            self.model_stu.load_checkpoint([self.FLAGS.load_file_den, load_file_stu], self.sess, [self.FLAGS.load_namescope_den, load_namescope_stu], exclude_pattern=self.FLAGS.load_exclude)
-        else:
-            self.model_stu.load_checkpoint(load_file_stu, self.sess, load_namescope_stu, exclude_pattern=self.FLAGS.load_exclude)
+        if not self.FLAGS.scratch: # if not train from scratch, load student model
+            if not self.FLAGS.load_file_stu:
+                load_namescope_stu = self.FLAGS["teacher"]["namescope"] if self.FLAGS.load_namescope_tea is None else self.FLAGS.load_namescope_tea
+                load_file_stu = self.FLAGS.load_file_tea
+            else:
+                load_namescope_stu = self.FLAGS.load_namescope_stu
+                load_file_stu = self.FLAGS.load_file_stu
+            # Load student model
+            if self.FLAGS.use_denoiser:
+                self.model_stu.load_checkpoint([self.FLAGS.load_file_den, load_file_stu], self.sess, [self.FLAGS.load_namescope_den, load_namescope_stu], exclude_pattern=self.FLAGS.load_exclude)
+            else:
+                self.model_stu.load_checkpoint(load_file_stu, self.sess, load_namescope_stu, exclude_pattern=self.FLAGS.load_exclude)
+
+        # Start the dataset threads; start the dataset after model stu is loaded, in case there are following models to be copied (for graybox dataset);
+        # **NOTE**: this might incur a even longer delay for the init-test or the first training batch (these delay is not avoidable for graybox dataset)
+        #           as copy ops are constructed here and
+        #           the dataset's initialization is delayed compared to the previous implementation
+        utils.log("Starting dataset...")
+        self.dataset.start(sess)
+
         # Testing
         if not self.FLAGS.no_init_test:
             # assign this threshold value to model_stu.relu_thresh variable for initial test
-            if self.FLAGS.relu_thresh_schedule is not None: 
+            if self.FLAGS.relu_thresh_schedule is not None:
                 sess.run(tf.assign(self.model_stu.relu_thresh, self.FLAGS.relu_thresh_schedule["start_lr"]))
             self.test(adv=True, name="loaded_teacher_copy")
+
         # Training
         utils.log("Start training...")
         self.train()
 
-        coord.request_stop()
-        coord.join(threads)
+        self.dataset.end()
 
     @classmethod
     def populate_arguments(cls, parser):
@@ -421,3 +462,5 @@ class DistillTrainer(Trainer):
                             help="Load denoiser model")
         parser.add_argument("--load-namescope-den", type=str, default=None,
                             help="The namescope of the denoiser model")
+
+        parser.add_argument("--scratch", action="store_true", help="training a model from scratch")

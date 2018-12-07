@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
-
+import numpy as np
 from nics_at.models.base import QCNN
 
 _BATCH_NORM_EPSILON = 1e-5
@@ -16,6 +16,10 @@ class Resnet(QCNN):
         self.block_fn = self._building_block_v2
         self.bottleneck = False
         self.data_format = ('channels_first' if tf.test.is_built_with_cuda() else 'channels_last')
+        self.substract_mean = params.get("substract_mean", [123.68, 116.78, 103.94])
+        if isinstance(self.substract_mean, str):
+            self.substract_mean = np.load(self.substract_mean) # load mean from npy
+        self.div = np.array(params.get("div", 1))
         self.num_classes = params.get("num_classes", 200)
         self.num_filters = 64
         self.kernel_size = 3
@@ -158,18 +162,19 @@ class Resnet(QCNN):
     def _get_logits(self, inputs):
         relu_list = self.relu_list = []
         group_list = self.group_list = []
-        _R_MEAN = 123.68
-        _G_MEAN = 116.78
-        _B_MEAN = 103.94
-        _CHANNEL_MEANS = [_R_MEAN, _G_MEAN, _B_MEAN]
-        inputs = inputs - tf.constant(_CHANNEL_MEANS)
-        weight_decay = self.weight_decay
+        # _R_MEAN = 123.68
+        # _G_MEAN = 116.78
+        # _B_MEAN = 103.94
+        # _CHANNEL_MEANS = [_R_MEAN, _G_MEAN, _B_MEAN]
+        inputs = inputs - tf.cast(tf.constant(self.substract_mean), tf.float32)
+        if self.div is not None and not np.all(self.div == 1.):
+            inputs = inputs / self.div
+        # weight_decay = self.weight_decay
         if self.data_format == 'channels_first':
             # Convert the inputs from channels_last (NHWC) to channels_first (NCHW).
             # This provides a large performance boost on GPU. See
             # https://www.tensorflow.org/performance/performance_guide#data_formats
             inputs = tf.transpose(inputs, [0, 3, 1, 2])
-
         inputs = self.conv2d_fixed_padding(
                 inputs=inputs, filters=self.num_filters, kernel_size=self.kernel_size,
                 strides=self.conv_stride, data_format=self.data_format)

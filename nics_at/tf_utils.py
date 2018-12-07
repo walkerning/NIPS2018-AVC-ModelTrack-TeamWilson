@@ -19,7 +19,7 @@ def thresh_relu(inputs, thresh):
 def _grad(op, output_grad):
     return tf.where(op.inputs[0]>0, tf.ones_like(op.inputs[0]), tf.zeros_like(op.inputs[0])) * output_grad
 
-def backthrough_thresh_relu(inputss, thresh):
+def backthrough_thresh_relu(inputs, thresh):
     G = tf.get_default_graph()
     with G.gradient_override_map({"Where": "backthrough_thresh_gradient"}):
         return tf.where(inputs > thresh, inputs, tf.zeros_like(inputs))

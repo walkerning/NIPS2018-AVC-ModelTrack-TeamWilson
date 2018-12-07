@@ -5,25 +5,32 @@ import os
 import sys
 import time
 import random
-import contextlib
 from functools import wraps
 import numpy as np
 
+log = None
+
 class AvailModels(object):
     # Singleton that store the references to all models
-    registry = {}
+    registries = {None: {}}
 
     @classmethod
-    def add(cls, model, x, y):
-        cls.registry[model.namescope] = (model, x, y)
+    def add(cls, model, x, y, tag=None):
+        cls.registries.setdefault(tag, {})[model.namescope] = (model, x, y)
 
     @classmethod
-    def get_model(cls, mid):
-        return cls.registry[mid][0]
+    def get_model(cls, mid, tag=None):
+        try_default = cls.registries[tag].get(mid, None)
+        if try_default is None and tag is None:
+            # try all registries
+            all_registries = reduce(lambda x, y: x.update(y) or x , cls.registries.values(), {})
+            return all_registries[mid][0]
+        else:
+            return try_default[0]
 
     @classmethod
-    def get_model_io(cls, mid):
-        return cls.registry[mid][1:]
+    def get_model_io(cls, mid, tag=None):
+        return cls.registries[tag][mid][1:]
 
 class LrAdjuster(object):
     def __init__(self, cfg):

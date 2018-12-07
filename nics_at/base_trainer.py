@@ -2,7 +2,6 @@
 from __future__ import print_function
 
 import copy
-import os
 
 from datasets import get_dataset_cls
 
@@ -32,11 +31,11 @@ class Trainer(object):
     def __init__(self, args, cfg):
         self.sess = None
         self.FLAGS = self._settings(cfg, args)
-        self.dataset = get_dataset_cls(self.FLAGS.dataset)(self.FLAGS.batch_size, self.FLAGS.epochs,
-                                                           self.FLAGS.aug_saltpepper, self.FLAGS.aug_gaussian,
-                                                           generated_adv=self.FLAGS.generated_adv,
-                                                           num_threads=self.FLAGS.num_threads, more_augs=self.FLAGS.more_augs,
-                                                           dataset_info=self.FLAGS.get("dataset_info", {}))
+        if self.FLAGS.test_only:
+            if self.FLAGS.dataset.startswith("gray_"):
+                print("WARNINING: will not use gray dataset in test-only mode")
+                self.FLAGS.dataset = self.FLAGS.dataset[5:]
+        self.dataset = get_dataset_cls(self.FLAGS.dataset)(self.FLAGS)
 
     @classmethod
     def populate_arguments(cls, parser):

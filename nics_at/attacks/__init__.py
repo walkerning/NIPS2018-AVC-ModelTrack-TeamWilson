@@ -4,7 +4,6 @@ import contextlib
 
 import numpy as np
 
-from cleverhans.model import Model
 import cleverhans.attacks
 import foolbox
 import foolbox.distances
@@ -13,9 +12,10 @@ from foolbox.models import TensorFlowModel
 
 from nics_at import utils
 from nics_at.utils import AvailModels, profiling
-from pgd_variants import MadryEtAl_L2, MadryEtAl_transfer, MadryEtAl_KLloss
+from pgd_variants import MadryEtAl_L2, MadryEtAl_transfer, MadryEtAl_transfer_re, MadryEtAl_KLloss
 cleverhans.attacks.MadryEtAl_L2 = MadryEtAl_L2
 cleverhans.attacks.MadryEtAl_transfer = MadryEtAl_transfer
+cleverhans.attacks.MadryEtAl_transfer_re = MadryEtAl_transfer_re
 cleverhans.attacks.MadryEtAl_KLloss = MadryEtAl_KLloss
 
 @contextlib.contextmanager
@@ -33,7 +33,7 @@ def substitute_argscope(_callable, dct):
 
 class AttackGenerator(object):
     def __init__(self, generate_cfg, merge=False, split_adv=False, random_split_adv=False,
-                 random_interp=None, random_interp_adv=None, use_cache=False, 
+                 random_interp=None, random_interp_adv=None, use_cache=False,
                  mixup_alpha=1.0, name=""):
         self.name = name
         self.cfg = generate_cfg
@@ -47,8 +47,8 @@ class AttackGenerator(object):
         self.batch_cache = {}
         self.epoch = 0
         self.batch = 0
-        utils.log("AttackGenerator {}: split_adv: {}; random_split_adv: {}; random_interp: {}; random_interp_adv: {}".
-                  format(self.name, self.split_adv, self.random_split_adv, self.random_interp, self.random_interp_adv))
+        utils.log("AttackGenerator {}: split_adv: {}; random_split_adv: {}; random_interp: {}; random_interp_adv: {}; use_cache: {}".
+                  format(self.name, self.split_adv, self.random_split_adv, self.random_interp, self.random_interp_adv, self.use_cache))
 
     def set_epoch(self, epoch):
         self.epoch = epoch
@@ -70,7 +70,7 @@ class AttackGenerator(object):
 
     @profiling
     def generate_for_model(self, x, y, mid, pre_adv_x=None):
-        cfg = self.cfg[mid]
+        cfg = self.cfg.get(mid, []) or []
         attacks = self.get_attacks(cfg)
         generated = []
         ys = []
@@ -82,9 +82,7 @@ class AttackGenerator(object):
             normal_x = x
             normal_y = y
             if a.get("mixup", False): # pre-mixup normal x,y before attack
-                # FIXME: for now, only mixup auged normal examples, not generated black-box adv examples; 
-                #      if black-box adv examples need mixup, maybe this functionality should be moved into AttackGenerator,
-                #      together with interp_adv or interp which generate examples that interpolate between the adv examples and the normal example of the same data point.
+                # FIXME: for now, only mixup auged normal examples, not generated black-box adv examples;
                 # NOTE: now, sample-level interpolation, can try batch-level too; only pre-mixup, not post-pixup now
                 if mixup_x is None and mixup_y is None: # not cached mixup_x, mixup_y
                     # calculate mixup_x and mixup_y
@@ -106,53 +104,48 @@ class AttackGenerator(object):
                 continue
             key = a.get("gid", a["id"] + "-".join(["{}_{}".format(k, v) for k, v in sorted(a.get("attack_params", {}).items(), key=lambda pair: pair[0])]))
             keys.append(key)
-            if self.use_cache: # FIXME: this code is not usable
-                if key in self.batch_cache:
-                    generated.append(self.batch_cache[key])
+            if "__generated__" in key:
+                adv_x = pre_adv_x
+                if self.random_interp is not None:
+                    min_, max_ = self.random_interp
+                    mult = min_ + np.random.rand(adv_x.shape[0], adv_x.shape[1], 1, 1, 1) * (max_ - min_)
+                    adv_x = np.clip(np.expand_dims(x, 1) * (1-mult) + adv_x * mult, 0, 255)
+                if self.split_adv and not self.random_split_adv:
+                    adv_x = list(adv_x.transpose((1, 0, 2, 3, 4)))
+                    generated += adv_x
+                    last_key = keys[-1]
+                    keys = keys[:-1] + ["{}_split_{}".format(last_key, i) for i in range(len(adv_x))]
+                    ys = ys+ [y] * len(adv_x)
                 else:
-                    # "__generated__" is the magical key for pre-generated adv examples stored in filesystem(the configuration is in FLAGS["generated_adv"])
-                    if "__generated__" in key:
-                        adv_x = pre_adv_x
-                    else:
-                        adv_x = Attack.get_attack(a["id"]).generate(normal_x, normal_y)
-                    self.batch_cache[key] = adv_x
                     generated.append(adv_x)
-            else: # not self.use_cache
-                if "__generated__" in key:
-                    adv_x = pre_adv_x
-                    if self.random_interp is not None:
-                        min_, max_ = self.random_interp
-                        mult = min_ + np.random.rand(adv_x.shape[0], adv_x.shape[1], 1, 1, 1) * (max_ - min_)
-                        adv_x = np.clip(np.expand_dims(x, 1) * (1-mult) + adv_x * mult, 0, 255)
-                    if self.split_adv and not self.random_split_adv:
-                        adv_x = list(adv_x.transpose((1, 0, 2, 3, 4)))
-                        generated += adv_x
-                        last_key = keys[-1]
-                        keys = keys[:-1] + ["{}_split_{}".format(last_key, i) for i in range(len(adv_x))]
-                        ys = ys+ [y] * len(adv_x)
-                    else:
-                        generated.append(adv_x)
-                        ys.append(np.tile(np.expand_dims(y, 1), (1, adv_x.shape[1], 1)))
-                    if self.random_interp_adv is not None:
-                        # NOTE: now use sample-level interpolation, can try batch-level too, might be more stable?
-                        min_, max_ = self.random_interp_adv
-                        breaks = np.vstack((np.random.rand(pre_adv_x.shape[1]-1, pre_adv_x.shape[0]), np.ones((1, pre_adv_x.shape[0]))))
-                        weights = []
-                        tmp_max = 1
-                        for i in range(pre_adv_x.shape[1]):
-                            w = min_ + breaks[i] * (tmp_max - min_)
-                            weights.append(w)
-                            tmp_max = tmp_max - w
-                        np.random.shuffle(weights) # here weights is of size [len_adv, batch_size]
-                        weights = np.transpose(weights).reshape((pre_adv_x.shape[0], pre_adv_x.shape[1], 1, 1, 1))
-                        additional_adv_x = np.clip(np.sum(weights * pre_adv_x, axis=1), 0, 255)
-                        generated.append(additional_adv_x)
-                        ys.append(y)
-                        keys.append("random_interp_advs")
-                else: # if __generated__ not in key
+                    ys.append(np.tile(np.expand_dims(y, 1), (1, adv_x.shape[1], 1)))
+                if self.random_interp_adv is not None:
+                    # NOTE: now use sample-level interpolation, can try batch-level too, might be more stable?
+                    min_, max_ = self.random_interp_adv
+                    breaks = np.vstack((np.random.rand(pre_adv_x.shape[1]-1, pre_adv_x.shape[0]), np.ones((1, pre_adv_x.shape[0]))))
+                    weights = []
+                    tmp_max = 1
+                    for i in range(pre_adv_x.shape[1]):
+                        w = min_ + breaks[i] * (tmp_max - min_)
+                        weights.append(w)
+                        tmp_max = tmp_max - w
+                    np.random.shuffle(weights) # here weights is of size [len_adv, batch_size]
+                    weights = np.transpose(weights).reshape((pre_adv_x.shape[0], pre_adv_x.shape[1], 1, 1, 1))
+                    additional_adv_x = np.clip(np.sum(weights * pre_adv_x, axis=1), 0, 255)
+                    generated.append(additional_adv_x)
+                    ys.append(y)
+                    keys.append("random_interp_advs")
+            else: # if __generated__ not in key, generate white-box adversarials
+                # white-box attack is the bottleneck of adversarial generation, use cache when needed
+                if self.use_cache and key in self.batch_cache:
+                    adv_x = self.batch_cache[key]
+                else:
                     adv_x = Attack.get_attack(a["id"]).generate(normal_x, normal_y)
-                    generated.append(adv_x)
-                    ys.append(normal_y)
+                    if self.use_cache:
+                        self.batch_cache[key] = adv_x # cached
+                generated.append(adv_x)
+                ys.append(normal_y)
+
         if self.random_split_adv:
             generated = [np.expand_dims(g, 1) if len(g.shape) == 4 else g for g in generated]
             total = np.concatenate(generated, axis=1)
@@ -204,7 +197,7 @@ class AttackGenerator(object):
             elif self.meet_conds(acfg.get("conds", [])):
                 choosed.append(acfg)
         return choosed
-        
+
 class Attack(object):
     registry = {}
 
@@ -224,6 +217,11 @@ class Attack(object):
         atk = globals()[_type.capitalize() + "Attack"](sess, cfg)
         cls.registry[atk.cfg["id"]] = atk
         return atk
+
+    def generate_tensor(self, x, y, params={}):
+        t_params = {k: v for k, v in self.default_params.iteritems()}
+        t_params.update(params)
+        return self._generate_tensor(x, y, t_params)
 
     def generate(self, x, y, params={}):
         t_params = {k: v for k, v in self.default_params.iteritems()}
@@ -256,6 +254,10 @@ class FoolboxAttack(Attack):
         criterion = foolbox.criteria.Misclassification()
         self.attack = getattr(foolbox.attacks, self.attack_methods[cfg["method"]])(self.attack_model, criterion)
 
+    def _generate_tensor(self, x, y, params):
+        # not implemented
+        raise Exception("Not implemented")
+
     def _generate(self, x_v, y_v, params):
         with substitute_argscope(foolbox.Adversarial, {"distance": foolbox.distances.Linf}):
             advs = [self.attack(sx_v, np.argmax(sy_v), binary_search=False, **params) for sx_v, sy_v in zip(x_v, y_v)]
@@ -270,6 +272,7 @@ class CleverhansAttack(Attack):
         "cw": "CarliniWagnerL2",
         "pgd": "MadryEtAl",
         "transfer_pgd": "MadryEtAl_transfer",
+        "re_transfer_pgd": "MadryEtAl_transfer_re",
         "l2_pgd": "MadryEtAl_L2",
         "momentum_pgd": "MomentumIterativeMethod",
         "kl_vat": "MadryEtAl_KLloss" # https://github.com/takerum/vat
@@ -280,6 +283,9 @@ class CleverhansAttack(Attack):
             self.attack = getattr(cleverhans.attacks, self.attack_methods[self.cfg["method"]])(AvailModels.get_model(self.cfg["model"]), AvailModels.get_model(self.cfg["transfer"]), sess=sess)
         else:
             self.attack = getattr(cleverhans.attacks, self.attack_methods[self.cfg["method"]])(AvailModels.get_model(self.cfg["model"]), sess=sess)
+
+    def _generate_tensor(self, x, y, params):
+        return self.attack.generate(x, y=y, **params)
 
     @profiling
     def _generate(self, x_v, y_v, params):

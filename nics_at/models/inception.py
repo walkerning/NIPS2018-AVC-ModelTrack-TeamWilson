@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
+import numpy as np
 
 from nics_at.models.base import QCNN
 
@@ -7,9 +8,18 @@ class Inception(QCNN):
     TYPE = "inception"
     def __init__(self, namescope, params={}):
         super(Inception, self).__init__(namescope, params)
+        self.num_classes = params.get("num_classes", 200)
+        self.substract_mean = params.get("substract_mean", [123.68, 116.78, 103.94])
+        if isinstance(self.substract_mean, str):
+            self.substract_mean = np.load(self.substract_mean) # load mean from npy
+        self.div = np.array(params.get("div", 1))
+        self.filter_size_div = params.get("filter_size_div", 1)
 
     def _get_logits(self, inputs):
+        weight_decay = self.weight_decay
         def conv_relu(input_, index_, filters_, kernel_size_ = (3, 3), stride_ = 2, name_scope=""):
+            if self.filter_size_div != 1:
+                filters_ = filters_ // self.filter_size_div
             conv_ = tf.layers.conv2d(input_, filters=filters_, kernel_size=kernel_size_,
                 strides=(stride_,stride_), padding="same", use_bias=False,
              kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay),
@@ -18,6 +28,9 @@ class Inception(QCNN):
                  scope=name_scope+"bn"+str(index_), decay=0.9)
             relu_ = tf.nn.relu(bn_, name=name_scope+"relu"+str(index_))
             return relu_
+        inputs = inputs - tf.cast(tf.constant(self.substract_mean), tf.float32)
+        if self.div is not None and not np.all(self.div == 1.):
+            inputs = inputs / self.div
         ###stem
         c = conv_relu(inputs, 1, 32, (3, 3), 2)
         c = conv_relu(c, 2, 64, (3, 3), 1)
@@ -132,7 +145,7 @@ class Inception(QCNN):
                 strides=(2,2), padding='SAME')
         c = tf.layers.dropout(c, 0.2, training=self.training)
         c = tf.contrib.layers.flatten(c)
-        c = tf.layers.dense(c, units=200, name="ip1",
+        c = tf.layers.dense(c, units=self.num_classes, name="ip1",
                              kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
                              kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay))
         return {"logits": c}
