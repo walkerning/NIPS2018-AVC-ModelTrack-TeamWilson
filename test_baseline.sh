@@ -9,7 +9,7 @@ IMAGE_TYPE=${IMAGE_TYPE:-"npy"}
 
 # Handle configurations
 gpu=${GPU:-0} # use which gpu
-LABEL_FILE=${LABEL_FILE:-"~/yml_files/labels.yml"}
+LABEL_FILE=${LABEL_FILE:-"/home/foxfi/yml_files/labels.yml"}
 TEST_FIRST=${TEST_FIRST:-""} # only test first n pics (require the content of yaml file to be orgnized as "one example per line" format)
 TEST_LOCAL=${TEST_LOCAL:-""}
 ADDI_NAME=${ADDI_NAME:-none} # docker addi name
