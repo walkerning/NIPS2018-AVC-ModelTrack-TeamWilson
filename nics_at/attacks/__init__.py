@@ -12,10 +12,11 @@ from foolbox.models import TensorFlowModel
 
 from nics_at import utils
 from nics_at.utils import AvailModels, profiling
-from pgd_variants import MadryEtAl_L2, MadryEtAl_transfer, MadryEtAl_transfer_re, MadryEtAl_KLloss
+from pgd_variants import MadryEtAl_L2, MadryEtAl_transfer, MadryEtAl_transfer_re, MadryEtAl_KLloss, MadryEtAl_L2_transfer_re
 cleverhans.attacks.MadryEtAl_L2 = MadryEtAl_L2
 cleverhans.attacks.MadryEtAl_transfer = MadryEtAl_transfer
 cleverhans.attacks.MadryEtAl_transfer_re = MadryEtAl_transfer_re
+cleverhans.attacks.MadryEtAl_L2_transfer_re = MadryEtAl_L2_transfer_re
 cleverhans.attacks.MadryEtAl_KLloss = MadryEtAl_KLloss
 
 @contextlib.contextmanager
@@ -273,6 +274,7 @@ class CleverhansAttack(Attack):
         "pgd": "MadryEtAl",
         "transfer_pgd": "MadryEtAl_transfer",
         "re_transfer_pgd": "MadryEtAl_transfer_re",
+        "l2_re_transfer_pgd": "MadryEtAl_L2_transfer_re",
         "l2_pgd": "MadryEtAl_L2",
         "momentum_pgd": "MomentumIterativeMethod",
         "kl_vat": "MadryEtAl_KLloss" # https://github.com/takerum/vat

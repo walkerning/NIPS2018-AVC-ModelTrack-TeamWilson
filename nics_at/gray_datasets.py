@@ -30,7 +30,7 @@ class GrayDataset(Dataset):
 
         # Construct all the models in this device
         self.device = FLAGS.gray_dataset_device
-        with tf.device('/gpu:{}'.format(self.device)):
+        with tf.device("/gpu:{}".format(self.device)):
             # **NOTE**: these models will use a different registry to avoid accidentaly causing too many data movement between devices
             #           for considerations of multiple aspects(especially **efficiency**), do not support foolbox type attack
             self.available_models_cfgs = FLAGS.additional_models_gray
@@ -84,7 +84,8 @@ class GrayDataset(Dataset):
         }
 
     def read_image_without_following(self, mode, ind_, major):
-        return self._read_image_with_attack(mode)
+        # return self._read_image_with_attack(mode)
+        return self._read_image(mode)
 
     def read_image_with_following(self, mode, ind_, major):
         cont_m2t_queue, cont_t2m_queue, m2s_queue, s2m_queue, per_thread_num = self.queues_dct[mode][:5]
@@ -118,26 +119,45 @@ class GrayDataset(Dataset):
         def handle(num):
             def _func():
                 with tf.control_dependencies([tf.assign_add(num, 1)]):
-                    return self._read_image_with_attack(mode)
+                    # return self._read_image_with_attack(mode)
+                    return self._read_image(mode)
             return _func
         # contention can occur. more examples might be produced than per_thread_num; i think this will not harm the performance
         with tf.device('/gpu:{}'.format(self.device)):
             return tf.cond(num>=per_thread_num, wait_and_handle(num), handle(num))
 
-    def _read_image_with_attack(self, mode):
-        # Construct the aug/load_generated graph
-        img, auged_img, label, loaded_adv_imgs = self.read_image(self.filenames_queues_dct[mode], mode)
+    def _read_image(self, mode):
+        return self.read_image(self.filenames_queues_dct[mode], mode)
+
+    # def _read_image_with_attack(self, mode):
+    #     # Construct the aug/load_generated graph
+    #     img, auged_img, label, loaded_adv_imgs = self.read_image(self.filenames_queues_dct[mode], mode)
+    #     # Construct the attack graph using the already constructed attacks
+    #     with tf.device('/gpu:{}'.format(self.device)):
+    #         advs = tf.concat([loaded_adv_imgs] + [a.generate_tensor(tf.expand_dims(auged_img, 0), tf.one_hot(tf.expand_dims(label, 0), self.num_labels)) for a in self.available_attacks], axis=0)
+    #     return [img, auged_img, label, advs]
+
+    def _read_image_with_attack(self, im_tensor, label_tensor, loaded_adv_tensor):
         # Construct the attack graph using the already constructed attacks
         with tf.device('/gpu:{}'.format(self.device)):
-            advs = tf.concat([loaded_adv_imgs] + [a.generate_tensor(tf.expand_dims(auged_img, 0), tf.one_hot(tf.expand_dims(label, 0), self.num_labels)) for a in self.available_attacks], axis=0)
-        return [img, auged_img, label, advs]
+            advs = tf.concat([loaded_adv_tensor] + [tf.expand_dims(a.generate_tensor(im_tensor, label_tensor), axis=1) for a in self.available_attacks], axis=1) # concat along axis 1. (batch size, attacks, ... image axes ...)
+        return advs
+
+    def adv_batch_q(self, im_tensor, label_tensor, loaded_adv_tensor, mode):
+        # return tf.train.batch_join([_read_image_with_attack(im_tensor, label_tensor, loaded_adv_tensor) for i in range(self.num_threads[mode])], 
+        #                            1, shapes=[tuple([self.total_generated_adv_num, self.batch_size] + list(self.image_shape))],
+        #                            capacity=self.capacity)
+        return tf.train.batch_join([_read_image_with_attack(im_tensor, label_tensor, loaded_adv_tensor)], # let's use one thread to do the work
+                                   1, shapes=[tuple([self.batch_size, self.total_generated_adv_num] + list(self.image_shape))],
+                                   capacity=self.capacity)
 
     def batch_q(self, mode):
         read_image_func = self.read_image_with_following if self.has_following \
                           else self.read_image_without_following
         return tf.train.batch_join([read_image_func(mode, i, major=i==0) for i in range(self.num_threads[mode])],
                                    self.batch_size, shapes=[tuple(self.image_shape), tuple(self.image_shape), (),
-                                                            tuple([self.total_generated_adv_num] + list(self.image_shape))],
+                                                            # tuple([self.total_generated_adv_num] + list(self.image_shape))],
+                                                            tuple([self.generated_adv_num] + list(self.image_shape))],
                                    capacity=self.capacity)
 
     def start(self, sess):
@@ -192,15 +212,28 @@ class GrayDataset(Dataset):
         return
 
     @property
+    def _normal_data_tensors(self):
+        if not self._gen_normal:
+            self._gen_normal = True
+            with tf.device("/cpu:0"):
+                self.n_imgs_t, self.n_auged_imgs_t, self.n_labels_t, self.n_adv_imgs_t = self.batch_q("train")
+                self.n_imgs_v, self.n_auged_imgs_v, self.n_labels_v, self.n_adv_imgs_v = self.batch_q("val")
+
+            self.n_labels_t = tf.one_hot(self.n_labels_t, self.n_num_labels)
+            self.n_labels_v = tf.one_hot(self.n_labels_v, self.n_num_labels)
+        return (self.n_imgs_t, self.n_auged_imgs_t, self.n_labels_t, self.n_adv_imgs_t), (self.n_imgs_v, self.n_auged_imgs_v, self.n_labels_v, self.n_adv_imgs_v)
+
+    @property
     def data_tensors(self):
         if not self._gen:
             self._gen = True
+            self._normal_data_tensor # just trigger a call
             with tf.device("/cpu:0"):
-                self.imgs_t, self.auged_imgs_t, self.labels_t, self.adv_imgs_t = self.batch_q("train")
-                self.imgs_v, self.auged_imgs_v, self.labels_v, self.adv_imgs_v = self.batch_q("val")
+                self.imgs_t, self.labels_t, self.adv_imgs_t = self.n_imgs_t, self.n_labels_t, self.n_adv_imgs_t
+                self.adv_imgs_t = tf.squeeze(self.adv_batch_q(self.n_auged_imgs_t, self.labels_t, self.adv_imgs_t, "train"), axis=0)
+                self.imgs_v, self.labels_v, self.adv_imgs_v = self.n_imgs_v, self.n_labels_v, self.n_adv_imgs_v
+                self.auged_imgs_v, self.adv_imgs_v = tf.squeeze(self.adv_batch_q(self.n_auged_imgs_v, self.labels_v, self.adv_imgs_v, "val"), axis=0)
 
-            self.labels_t = tf.one_hot(self.labels_t, self.num_labels)
-            self.labels_v = tf.one_hot(self.labels_v, self.num_labels)
         return (self.imgs_t, self.auged_imgs_t, self.labels_t, self.adv_imgs_t), (self.imgs_v, self.auged_imgs_v, self.labels_v, self.adv_imgs_v)
 
 class GrayCifar10Dataset(GrayDataset, Cifar10Dataset):

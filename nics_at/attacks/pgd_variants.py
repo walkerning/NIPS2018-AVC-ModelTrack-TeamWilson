@@ -71,6 +71,10 @@ class MadryEtAl_KLloss(cleverhans.attacks.MadryEtAl):
         return eta
 
 class MadryEtAl_L2(cleverhans.attacks.MadryEtAl):
+    def __init__(self, model, transfer=None, back="tf", sess=None, dtypestr="float32"):
+        super(MadryEtAl_L2, self).__init__(model, back=back, sess=sess, dtypestr=dtypestr)
+        self.transfer_model = transfer
+
     # ord only decide use linf or l2 to clip
     def attack_single_step(self, x, eta, y):
         """
@@ -86,13 +90,18 @@ class MadryEtAl_L2(cleverhans.attacks.MadryEtAl):
         from cleverhans.loss import attack_softmax_cross_entropy
 
         adv_x = x + eta
-        logits = self.model.get_logits(adv_x)
+        model = self.model if self.transfer_model is not None else self.model
+        logits = model.get_logits(adv_x)
         loss = attack_softmax_cross_entropy(y, logits)
         if self.targeted:
             loss = -loss
         grad, = tf.gradients(loss, adv_x)
         axis = list(range(1, len(grad.shape)))
-        scaled_signed_grad = self.eps_iter * grad / tf.sqrt(tf.reduce_mean(tf.square(grad), axis, keep_dims=True))
+        avoid_zero_div = 1e-12
+        # scaled_signed_grad = self.eps_iter * grad / tf.sqrt(tf.maximum(avoid_zero_div,
+        #                                                                tf.reduce_mean(tf.square(grad), axis, keep_dims=True)))
+        scaled_signed_grad = self.eps_iter * grad / tf.sqrt(tf.maximum(avoid_zero_div,
+                                                                       tf.reduce_sum(tf.square(grad), axis, keep_dims=True)))
         adv_x = adv_x + scaled_signed_grad
         if self.clip_min is not None and self.clip_max is not None:
             adv_x = tf.clip_by_value(adv_x, self.clip_min, self.clip_max)
@@ -134,9 +143,13 @@ class MadryEtAl_transfer(cleverhans.attacks.MadryEtAl):
         return eta
 
 class MadryEtAl_transfer_re(MadryEtAl_transfer): # transfer and return early
-    # **Attention**: batch size should be 1 !!!
     def __init__(self, model, transfer, back="tf", sess=None, dtypestr="float32"):
         super(MadryEtAl_transfer_re, self).__init__(model, transfer=transfer, back=back, sess=sess, dtypestr=dtypestr)
+        self.structural_kwargs = ["ord", "nb_iter", "rand_init", "min_nb_iter"]
+
+    def parse_params(self, *args, **kwargs):
+        self.min_nb_iter = kwargs.get("min_nb_iter", 0)
+        return super(MadryEtAl_transfer_re, self).parse_params(*args, **kwargs)
 
     def attack(self, x, y):
         import tensorflow as tf
@@ -182,7 +195,11 @@ class MadryEtAl_transfer_re(MadryEtAl_transfer): # transfer and return early
             predict = tf.argmax(self.model.get_logits(x + eta), axis=-1)
             return [eta, predict]
 
-        for iter_ in range(self.nb_iter):
+        if self.min_nb_iter > 0:
+            for iter_ in range(self.min_nb_iter):
+                eta = self.attack_single_step(x, eta, y)
+
+        for iter_ in range(self.min_nb_iter, self.nb_iter):
             still_correct = tf.equal(predict, y_label)
             new_eta, new_predict = next_step_eta(eta)
             eta = tf.where(still_correct, new_eta, eta)
@@ -193,3 +210,6 @@ class MadryEtAl_transfer_re(MadryEtAl_transfer): # transfer and return early
             adv_x = tf.clip_by_value(adv_x, self.clip_min, self.clip_max)
 
         return adv_x
+
+class MadryEtAl_L2_transfer_re(MadryEtAl_transfer_re, MadryEtAl_L2):
+    pass
