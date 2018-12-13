@@ -103,10 +103,12 @@ def load_example(path, img_key):
     else: # bin
         return np.fromfile(fpath, dtype=np.uint8).reshape((64, 64, 3))
 
-def parse_dist_cfg(size, step, im_size_max, max_ratio, coors):
+def parse_dist_cfg(size, step, im_size_max, max_ratio, coors, adjust_ratio=1.1):
     # handle size(in l2 dist)
     if size == "adjust":
-        size = np.max(np.abs(coors), axis=0) * 1.1 # 1.1 magic number
+        size = np.max(np.abs(coors), axis=0) * adjust_ratio
+        if size[1] == 0:
+            size[1] = size[0]
         if size[0] / size[1] > max_ratio:
             size[1] = size[0] / max_ratio
         elif size[1] / size[0] > max_ratio:
@@ -234,7 +236,8 @@ for ori_img_key in args.img_key:
             scfg = directn_cfg_map[direct_n]
             dist, step, im_size = parse_dist_cfg(size=scfg.get("size", "adjust"), step=scfg.get("step", "auto"),
                                                  im_size_max=scfg.get("im_size_max", [50,50]),
-                                                 max_ratio=scfg.get("max_ratio", 2), coors=[d[1] for d in directn_point_map[direct_n]])
+                                                 max_ratio=scfg.get("max_ratio", 2), coors=[d[1] for d in directn_point_map[direct_n]],
+                                                 adjust_ratio=scfg.get("adjust_ratio", 1.1))
             step0, step1 = step
             print("bounds: ", "+-{}; +-{}".format(*dist), "image size: ", im_size, "step: {}, {}".format(step0, step1))
         else:    
@@ -267,8 +270,9 @@ for ori_img_key in args.img_key:
         available_classes = list(np.unique(boundary_maps))
         # assert label + 1 in available_classes
         if label + 1 not in available_classes:
-            print("maybe the step is set too large... this picture will be skipped by default.")
-            continue
+            # print("maybe the step is set too large... this picture will be skipped by default.")
+            # continue
+            pass
         print("avail classes num: ", len(available_classes))
         available_classes[available_classes.index(label+1)] = available_classes[0]
         available_classes[0] = label+1

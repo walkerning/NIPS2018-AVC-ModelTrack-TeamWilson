@@ -33,19 +33,22 @@ def worst_case_distance(X):
 @contextlib.contextmanager
 def substitute_argscope(_callable, dct):
     if isinstance(_callable, type): # class
-        _callable.old_init = _callable.__init__
-        def new_init(self, *args, **kwargs):
-            kwargs.update(dct)
-            return self.old_init(*args, **kwargs)
-        _callable.__init__ = new_init
+        # _callable.old_init = _callable.__init__
+        def get_new_init(old_init):
+            def new_init(self, *args, **kwargs):
+                kwargs.update(dct)
+                return old_init(self, *args, **kwargs)
+            new_init.old_init = old_init
+            return new_init
+        _callable.__init__ = get_new_init(_callable.__init__)
         yield
-        _callable.__init__ = _callable.old_init
+        _callable.__init__ = _callable.__init__.old_init
     else: # function/methods
         raise Exception("not implemented")
 
 dataset_dct = {
-    "tiny-imagenet": {"shape": (64, 64, 3), "channel_axis": -1},
-    "cifar10": {"shape": (32, 32, 3), "channel_axis": -1}
+    "tiny-imagenet": {"shape": (64, 64, 3), "channel_axis": -1, "num_classes": 200},
+    "cifar10": {"shape": (32, 32, 3), "channel_axis": -1, "num_classes": 10}
 }
 class ImageReader(object):
     available_methods = ["npy", "img", "bin"]
@@ -53,7 +56,7 @@ class ImageReader(object):
         assert tp in self.available_methods
         self.tp = tp
         self.dataset = dataset
-        self.shape, self.channel_axis = dataset_dct[dataset]["shape"], dataset_dct[dataset]["channel_axis"]
+        self.shape, self.channel_axis, self.num_classes = dataset_dct[dataset]["shape"], dataset_dct[dataset]["channel_axis"], dataset_dct[dataset]["num_classes"]
 
         assert self.channel_axis in {-1, 0}
         if self.channel_axis == 0:

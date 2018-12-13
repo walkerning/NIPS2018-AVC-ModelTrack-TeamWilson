@@ -8,6 +8,7 @@ DATASET=${DATASET:-"tiny-imagenet"}
 IMAGE_TYPE=${IMAGE_TYPE:-"npy"}
 
 # Handle configurations
+VERBOSE=${VERBOSE:-0}
 gpu=${GPU:-0} # use which gpu
 LABEL_FILE=${LABEL_FILE:-"/home/foxfi/yml_files/labels.yml"}
 TEST_FIRST=${TEST_FIRST:-""} # only test first n pics (require the content of yaml file to be orgnized as "one example per line" format)
@@ -51,6 +52,9 @@ else
 fi
 
 dataset_arg="--dataset ${DATASET} --image-type ${IMAGE_TYPE}"
+if [[ "${VERBOSE}" -gt 0 ]]; then
+    dataset_arg="${dataset_arg} --verbose"
+fi
 
 if [[ ! -z "${TEST_FIRST}" ]]; then
     temp_f=$(tempfile)

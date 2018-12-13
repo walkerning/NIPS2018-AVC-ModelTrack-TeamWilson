@@ -2,6 +2,7 @@
 import os
 import sys
 import pwd
+import random
 import logging
 import datetime
 import argparse
@@ -21,6 +22,8 @@ from attacks import *
 
 avail_attacks = [n.rsplit("_", 1)[0] for n in attacks.__all__]
 bms = {n: globals()[n + "_attack"] for n in avail_attacks}
+bms.update({n+"_targeted": globals()[n + "_attack"] for n in avail_attacks})
+avail_attacks = bms.keys()
 
 def main(reader, types, save, backward_cfg=None, forward_cfg=None, verbose=False, addi_name=None, adv_pattern_dir=None):
     if forward_cfg is None:
@@ -71,6 +74,7 @@ def main(reader, types, save, backward_cfg=None, forward_cfg=None, verbose=False
     accuracy_counter = 0
     num_test = 0
     not_adv = {tp: 0 for tp in types}
+    dataset_num_classes = reader.num_classes
     for ind, (file_name, image, label) in enumerate(reader.read_images()):
         num_test += 1
         predict_label = np.argmax(forward_model.predictions(image))
@@ -83,16 +87,22 @@ def main(reader, types, save, backward_cfg=None, forward_cfg=None, verbose=False
             adv_pattern = adv_im - image
             before = np.argmax(forward_model.predictions(adv_im))
             adv_pattern_predict = [file_name.split(".")[0], label, before]
+
+        target_label = (label + random.randint(1,reader.num_classes-1)) % reader.num_classes
         for it, tp in enumerate(types):
             with substitute_argscope(foolbox.Adversarial, {"distance": foolbox.distances.Linf if "pgd" in tp else foolbox.distances.MSE}):
+                if "_targeted" in tp: # targeted attack!
+                    target = target_label
+                else:
+                    target = None
                 if not tp.endswith("transfer"):
                     if tp.startswith("aug_"):
                         adversarial, suc = bms[tp](forward_model, image, label, verbose=verbose)
                     else:
-                        adversarial = bms[tp](forward_model, image, label, verbose=verbose)
+                        adversarial = bms[tp](forward_model, image, label, verbose=verbose, target=target)
                         suc = adversarial is not None
                 else:
-                    adversarial = bms[tp](transfer_model, image, label, verbose=verbose)
+                    adversarial = bms[tp](transfer_model, image, label, verbose=verbose, target=target)
                     suc = adversarial is not None
             if not suc:
                 pixel_dis = float(worst_case_distance(image))
@@ -108,7 +118,7 @@ def main(reader, types, save, backward_cfg=None, forward_cfg=None, verbose=False
                 after = np.argmax(forward_model.predictions(adversarial + adv_pattern))
                 adv_pattern_predict.append(after)
             distances[it].append(pixel_dis)
-            print("image {}: {} attack / distance: {}".format(ind+1, tp, pixel_dis))
+            print("image {}: {} attack / distance: {}{}".format(ind+1, tp, pixel_dis, "; target: {}".format(target_label) if "_targeted" in tp else ""))
             sys.stdout.flush()
             if args.save:
                 if adversarial is None:
@@ -173,6 +183,7 @@ if __name__ == '__main__':
             os.makedirs(os.path.join(args.save, tp), exist_ok=True)
 
     if args.verbose:
+        print("verbose")
         logging.basicConfig(level=logging.INFO)
         logging.getLogger().setLevel(logging.INFO) # set root logger level
     else:

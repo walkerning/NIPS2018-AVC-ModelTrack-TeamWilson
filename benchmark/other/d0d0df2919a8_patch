@@ -1,0 +1,55 @@
+diff --git a/foolbox/adversarial.py b/foolbox/adversarial.py
+index 8167f64..4c0b076 100644
+--- a/foolbox/adversarial.py
++++ b/foolbox/adversarial.py
+@@ -57,7 +57,8 @@ class Adversarial(object):
+             original_class,
+             distance=MSE,
+             threshold=None,
+-            verbose=False):
++            verbose=False,
++            return_last=False):
+ 
+         self.__model = model
+         self.__criterion = criterion
+@@ -65,6 +66,9 @@ class Adversarial(object):
+         self.__original_image_for_distance = original_image
+         self.__original_class = original_class
+         self.__distance = distance
++        self.__return_last = return_last
++        if return_last:
++            self.__is_adversarial = self.__is_adversarial_use_last
+ 
+         if threshold is not None and not isinstance(threshold, Distance):
+             threshold = distance(value=threshold)
+@@ -209,6 +213,30 @@ class Adversarial(object):
+             return True, distance
+         return False, distance
+ 
++    def __is_adversarial_use_last(self, image, predictions, in_bounds):
++        print("use_last")
++        is_adversarial = self._criterion.is_adversarial(
++            predictions, self.original_class)
++        assert isinstance(is_adversarial, bool) or \
++            isinstance(is_adversarial, np.bool_)
++        image = image.copy()  # to prevent accidental inplace changes
++        if not hasattr(self, "__actual_best"):
++            self.__actual_best_adversarial = None
++        self.__best_adversarial = image
++        self.__best_adversarial_output = predictions
++        self._best_prediction_calls = self._total_prediction_calls
++        self._best_gradient_calls = self._total_gradient_calls
++        is_best = False
++        if is_adversarial:
++            distance = self.normalized_distance(image)
++            if distance < self.__best_distance:
++                self.__best_distance = distance
++                self.__actual_best_adversarial = image
++                is_best = True
++        else:
++            distance = None
++        return is_adversarial, is_best, distance
++
+     def __is_adversarial(self, image, predictions, in_bounds):
+         """Interface to criterion.is_adverarial that calls
+         __new_adversarial if necessary.

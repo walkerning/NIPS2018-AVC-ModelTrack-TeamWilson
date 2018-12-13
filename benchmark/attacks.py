@@ -1,11 +1,15 @@
 import numpy as np
 import foolbox
+from utils import substitute_argscope
+from functools import wraps
 
 __all__ = [
     "cw_l2_transfer_attack",
     "cw_l2_attack",
     "gaussian_attack", "saltnpepper_attack", "boundary_attack", "transfer_attack",
     "iterative_transfer_attack", "pgd_transfer_attack", "pgd_005_transfer_attack",
+    "pgd_0063_00078_10_re_transfer_attack", # actually a bit stricter than fixed eps=16/step=2 and find the accuracy
+    "pgd_0063_00078_10_last_transfer_attack",
     "pgd_03_001_40_re_transfer_attack", "pgd_03_001_40_bs_transfer_attack",
     "l2i_01_002_10_bs_transfer_attack", "l2i_01_002_10_nobs_transfer_attack",
     "l2i_03_005_10_nobs_transfer_attack", "l2i_05_01_10_nobs_transfer_attack",
@@ -19,75 +23,99 @@ __all__ = [
     "aug_nothing_attack"
 ]
 
-def cw_l2_transfer_attack(model, image, label, verbose=False):
-    criterion = foolbox.criteria.Misclassification()
+def add_target_wrapper(fn):
+    @wraps(fn)
+    def _fn(*args, **kwargs):
+        if kwargs.get("criterion", None) is None:
+            target = kwargs.pop("target", None)
+            if target:
+                criterion = foolbox.criteria.TargetClass(target)
+            else:
+                criterion = foolbox.criteria.Misclassification()
+            kwargs["criterion"] = criterion
+        return fn(*args, **kwargs)
+    return _fn
+
+@add_target_wrapper
+def cw_l2_transfer_attack(model, image, label, criterion, verbose=False):
     attack = foolbox.attacks.CarliniWagnerL2Attack(model, criterion)
     return attack(image, label, max_iterations=500)
 
 cw_l2_attack = cw_l2_transfer_attack
 
-def pgd_03_001_40_re_transfer_attack(model, image, label, verbose=False):
-    criterion = foolbox.criteria.Misclassification()
+@add_target_wrapper
+def pgd_0063_00078_10_last_transfer_attack(model, image, label, criterion, verbose=False):
+    attack = foolbox.attacks.PGD(model, criterion)
+    with substitute_argscope(foolbox.Adversarial, {"return_last": True}): # we patch foolbox here... apply `other/d0d0df2919a8_patch` to foolbox:d0d0df2919a8
+        return attack(image, label, binary_search=False, epsilon=0.063, stepsize=0.0078, iterations=10, return_early=False)
+
+@add_target_wrapper
+def pgd_0063_00078_10_re_transfer_attack(model, image, label, criterion, verbose=False):
+    attack = foolbox.attacks.PGD(model, criterion)
+    return attack(image, label, binary_search=False, epsilon=0.063, stepsize=0.0078, iterations=10, return_early=True)
+
+@add_target_wrapper
+def pgd_03_001_40_re_transfer_attack(model, image, label, criterion, verbose=False):
     attack = foolbox.attacks.PGD(model, criterion)
     return attack(image, label, binary_search=False, epsilon=0.3, stepsize=0.01, iterations=40, return_early=True)
 
-def pgd_03_001_40_bs_transfer_attack(model, image, label, verbose=False):
-    criterion = foolbox.criteria.Misclassification()
+@add_target_wrapper
+def pgd_03_001_40_bs_transfer_attack(model, image, label, criterion, verbose=False):
     attack = foolbox.attacks.PGD(model, criterion)
     return attack(image, label, binary_search=False, epsilon=0.3, stepsize=0.01, iterations=40, return_early=True)
 
-def pgd_transfer_attack(model, image, label, verbose=False):
-    criterion = foolbox.criteria.Misclassification()
+@add_target_wrapper
+def pgd_transfer_attack(model, image, label, criterion, verbose=False):
     attack = foolbox.attacks.PGD(model, criterion)
     return attack(image, label, binary_search=False, epsilon=0.2, stepsize=0.01, iterations=10, return_early=False)
 
-def pgd_005_transfer_attack(model, image, label, verbose=False):
-    criterion = foolbox.criteria.Misclassification()
+@add_target_wrapper
+def pgd_005_transfer_attack(model, image, label, criterion, verbose=False):
     attack = foolbox.attacks.PGD(model, criterion)
     return attack(image, label, binary_search=False, epsilon=0.05, stepsize=0.01, iterations=10, return_early=False)
 
-def iterative_transfer_attack(model, image, label, verbose=False):
-    criterion = foolbox.criteria.Misclassification()
+@add_target_wrapper
+def iterative_transfer_attack(model, image, label, criterion, verbose=False):
     attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
     return attack(image, label)
 
-def l2i_01_002_10_bs_transfer_attack(model, image, label, verbose=False):
-    criterion = foolbox.criteria.Misclassification()
+@add_target_wrapper
+def l2i_01_002_10_bs_transfer_attack(model, image, label, criterion, verbose=False):
     attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
     return attack(image, label, epsilon=0.1, stepsize=0.02, iterations=10, binary_search=True)
 
-def l2i_05_02_5_nobs_transfer_attack(model, image, label, verbose=False):
-    criterion = foolbox.criteria.Misclassification()
+@add_target_wrapper
+def l2i_05_02_5_nobs_transfer_attack(model, image, label, criterion, verbose=False):
     attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
     return attack(image, label, epsilon=0.5, stepsize=0.2, iterations=5, binary_search=False)
 
-def l2i_03_01_5_nobs_transfer_attack(model, image, label, verbose=False):
-    criterion = foolbox.criteria.Misclassification()
+@add_target_wrapper
+def l2i_03_01_5_nobs_transfer_attack(model, image, label, criterion, verbose=False):
     attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
     return attack(image, label, epsilon=0.3, stepsize=0.1, iterations=5, binary_search=False)
 
-def l2i_03_005_10_nobs_transfer_attack(model, image, label, verbose=False):
-    criterion = foolbox.criteria.Misclassification()
+@add_target_wrapper
+def l2i_03_005_10_nobs_transfer_attack(model, image, label, criterion, verbose=False):
     attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
     return attack(image, label, epsilon=0.3, stepsize=0.05, iterations=10, binary_search=False)
 
-def l2i_05_005_10_nobs_transfer_attack(model, image, label, verbose=False):
-    criterion = foolbox.criteria.Misclassification()
+@add_target_wrapper
+def l2i_05_005_10_nobs_transfer_attack(model, image, label, criterion, verbose=False):
     attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
     return attack(image, label, epsilon=0.5, stepsize=0.05, iterations=10, binary_search=False)
 
-def l2i_05_01_10_nobs_transfer_attack(model, image, label, verbose=False):
-    criterion = foolbox.criteria.Misclassification()
+@add_target_wrapper
+def l2i_05_01_10_nobs_transfer_attack(model, image, label, criterion, verbose=False):
     attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
     return attack(image, label, epsilon=0.5, stepsize=0.1, iterations=10, binary_search=False)
 
-def l2i_01_002_10_nobs_transfer_attack(model, image, label, verbose=False):
-    criterion = foolbox.criteria.Misclassification()
+@add_target_wrapper
+def l2i_01_002_10_nobs_transfer_attack(model, image, label, criterion, verbose=False):
     attack = foolbox.attacks.L2BasicIterativeAttack(model, criterion)
     return attack(image, label, epsilon=0.1, stepsize=0.02, iterations=10, binary_search=False)
 
-def transfer_attack(model, image, label, verbose=False):
-    criterion = foolbox.criteria.Misclassification()
+@add_target_wrapper
+def transfer_attack(model, image, label, criterion, verbose=False):
     attack = foolbox.attacks.GradientAttack(model, criterion)
     return attack(image, label, epsilons=100)
 
@@ -115,13 +143,13 @@ def gaussian_attack(model, image, label, verbose=False):
 
     return perturbed_image
 
-def saltnpepper_attack(model, image, label, verbose=False):
-    criterion = foolbox.criteria.Misclassification()
+@add_target_wrapper
+def saltnpepper_attack(model, image, label, criterion, verbose=False):
     attack = foolbox.attacks.SaltAndPepperNoiseAttack(model, criterion)
     return attack(image, label, epsilons=50, repetitions=10)
 
-def boundary_attack(model, image, label, verbose=False):
-    criterion = foolbox.criteria.Misclassification()
+@add_target_wrapper
+def boundary_attack(model, image, label, criterion, verbose=False):
     init_attack = foolbox.attacks.BlendedUniformNoiseAttack(model, criterion)
     init_adversarial = init_attack(
         image, label,
