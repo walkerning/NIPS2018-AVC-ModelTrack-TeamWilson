@@ -76,7 +76,7 @@ class DistillTrainer(Trainer):
         }
     def __init__(self, args, cfg):
         super(DistillTrainer, self).__init__(args, cfg)
-        assert self.FLAGS.distill_loss_type in {"crossentropy", "gaussian"}
+        assert self.FLAGS.distill_loss_type in {"crossentropy", "gaussian", "L2"}
 
     def init(self):
         # batch_size = self.FLAGS.batch_size # default to 128
@@ -131,7 +131,9 @@ class DistillTrainer(Trainer):
             soft_logits = self.logits_stu / self.FLAGS.temperature
             reshape_soft_label = tf.reshape(tf.tile(tf.expand_dims(soft_label, 1), [1, tf.shape(soft_logits)[0]/tf.shape(soft_label)[0], 1]), [-1, self.num_labels])
             if self.FLAGS.distill_loss_type == "gaussian":
-                ce = tf.reduce_sum((tf.nn.softmax(soft_label) - tf.nn.softmax(soft_logits))**2, axis=-1)
+                ce = tf.reduce_sum((tf.nn.softmax(reshape_soft_label) - tf.nn.softmax(soft_logits))**2, axis=-1)
+            elif self.FLAGS.distill_loss_type == "L2":
+                ce = tf.reduce_mean((reshape_soft_label - soft_logits)**2, axis=-1)
             else:
                 ce = tf.nn.softmax_cross_entropy_with_logits(
                     labels=reshape_soft_label,
