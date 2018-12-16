@@ -12,10 +12,11 @@ from foolbox.models import TensorFlowModel
 
 from nics_at import utils
 from nics_at.utils import AvailModels, profiling
-from pgd_variants import MadryEtAl_L2, MadryEtAl_transfer, MadryEtAl_transfer_re, MadryEtAl_KLloss
+from pgd_variants import MadryEtAl_L2, MadryEtAl_transfer, MadryEtAl_transfer_re, MadryEtAl_KLloss, MadryEtAl_L2_transfer_re
 cleverhans.attacks.MadryEtAl_L2 = MadryEtAl_L2
 cleverhans.attacks.MadryEtAl_transfer = MadryEtAl_transfer
 cleverhans.attacks.MadryEtAl_transfer_re = MadryEtAl_transfer_re
+cleverhans.attacks.MadryEtAl_L2_transfer_re = MadryEtAl_L2_transfer_re
 cleverhans.attacks.MadryEtAl_KLloss = MadryEtAl_KLloss
 
 @contextlib.contextmanager
@@ -233,7 +234,7 @@ class FoolboxAttack(Attack):
         "pgd": "PGD",
         "l2_pgd": "L2BasicIterativeAttack"
     }
-    def __init__(self, sess, cfg):
+    def __init__(self, sess, cfg): # NOTE: targeted attack not implemented for FoolboxAttack (As we will not use foolbox in training from now on, i suppose)
         super(FoolboxAttack, self).__init__(sess, cfg)
         images, logits = AvailModels.get_model_io(self.cfg["model"])
         with sess.as_default():
@@ -273,6 +274,7 @@ class CleverhansAttack(Attack):
         "pgd": "MadryEtAl",
         "transfer_pgd": "MadryEtAl_transfer",
         "re_transfer_pgd": "MadryEtAl_transfer_re",
+        "l2_re_transfer_pgd": "MadryEtAl_L2_transfer_re",
         "l2_pgd": "MadryEtAl_L2",
         "momentum_pgd": "MomentumIterativeMethod",
         "kl_vat": "MadryEtAl_KLloss" # https://github.com/takerum/vat
@@ -290,7 +292,13 @@ class CleverhansAttack(Attack):
     @profiling
     def _generate(self, x_v, y_v, params):
         attack_with_y = params.pop("attack_with_y", True)
+        targeted = params.pop("targeted", False)
         if attack_with_y:
-            return self.attack.generate_np(x_v, y=y_v, **params)
+            if not targeted: # non-targeted attack
+                return self.attack.generate_np(x_v, y=y_v, **params)
+            else:
+                num_classes = y_v.shape[-1]
+                other_y_v = np.eye(num_classes)[np.mod(np.argmax(y_v, axis=-1) + np.random.randint(1, num_classes, size=y_v.shape[0]), num_classes)]
+                return self.attack.generate_np(x_v, y_target=other_y_v, **params)
         else:
             return self.attack.generate_np(x_v, **params)

@@ -17,6 +17,7 @@ parser.add_argument("--save", "-s", required=True, help="save to path")
 parser.add_argument("--iter-train", action="store_true", default=False)
 parser.add_argument("--mutual-num", default=None, type=int)
 parser.add_argument("--plot-train-acc", default=False, action="store_true")
+parser.add_argument("--plot-dist", default=False, action="store_true")
 args, fnames = parser.parse_known_args()
 
 exists_test = ["normal"]
@@ -24,6 +25,7 @@ if args.plot_train_acc:
     exists_test.append("train")
 flabels = []
 adv_acc_dct_lst = []
+adv_dist_dct_lst = []
 for fname in fnames:
     if fname.endswith("train.log"):
         dirname = os.path.dirname(os.path.abspath(fname))
@@ -41,11 +43,21 @@ for fname in fnames:
         train_accs = re.findall("student accuracy: ([.0-9e]+) %;", content)
     normal_accs = re.findall("loss: [.0-9e]+; accuracy: ([.0-9e]+) %; ", content)
     adv_accs = re.findall("test (.+): acc: ([.0-9e]+);", content)
+    if args.plot_dist:
+        adv_dists = re.findall("dist: ([.0-9e]+)", content)
     adv_acc_dct = {}
-    for k, v in adv_accs:
-        adv_acc_dct.setdefault(k, []).append(float(v))
-        if k not in exists_test:
-            exists_test.append(k)
+    if not args.plot_dist:
+        for k, v in adv_accs:
+            adv_acc_dct.setdefault(k, []).append(float(v))
+            if k not in exists_test:
+                exists_test.append(k)
+    else:
+        adv_dist_dct = {}
+        for (k, v), dist in zip(adv_accs, adv_dists):
+            adv_acc_dct.setdefault(k, []).append(float(v))
+            adv_dist_dct.setdefault(k, []).append(float(dist))
+            if k not in exists_test:
+                exists_test.append(k)
     if args.mutual_num:
         # mean/var
         normal_accs = np.array([float(v) for v in normal_accs]).reshape([-1, args.mutual_num])
@@ -59,6 +71,8 @@ for fname in fnames:
             adv_acc_dct["train"] = [float(v) for v in train_accs]
     flabels.append(label)
     adv_acc_dct_lst.append(adv_acc_dct)
+    if args.plot_dist:
+        adv_dist_dct_lst.append(adv_dist_dct)
 
 colors = ['C0', 'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9']
 num_plot = len(exists_test)
@@ -71,6 +85,8 @@ if args.iter_train:
     false_accs = zip(*[[acc_dct.get(test_name, []) for test_name in exists_test] for acc_dct in false_accs])
 else:
     accs = zip(*[[acc_dct.get(test_name, []) for test_name in exists_test] for acc_dct in adv_acc_dct_lst])
+    if args.plot_dist:
+        dists = zip(*[[dist_dct.get(test_name, []) for test_name in exists_test] for dist_dct in adv_dist_dct_lst])
 
 if args.iter_train:
     for i, (name, t_acc, f_acc) in enumerate(zip(exists_test, true_accs, false_accs)):
@@ -82,6 +98,7 @@ if args.iter_train:
                 ax.plot(sf_acc, colors[j%len(colors)]+"--", label=l)
         ax.legend(loc=4, prop={"size": 4})
         ax.set_title(name)
+    plt.savefig(args.save)
 else:
     for i, (name, acc) in enumerate(zip(exists_test, accs)):
         ax = fig.add_subplot(2, math.ceil(num_plot/2.), i+1)
@@ -95,4 +112,14 @@ else:
         ax.legend(loc=4, prop={"size": 4})
         ax.set_title(name)
 
-plt.savefig(args.save)
+    plt.savefig(args.save)
+    if args.plot_dist:
+        fig = plt.figure(figsize=(2*num_plot, 6))
+        for i, (name, dist) in enumerate(zip(exists_test, dists)):
+            ax = fig.add_subplot(2, math.ceil(num_plot/2.), i+1)
+            for j, (l, s_dist) in enumerate(zip(flabels, dist)):
+                if s_dist:
+                    ax.plot(s_dist, colors[j%len(colors)], label=l)
+            ax.legend(loc=4, prop={"size": 4})
+            ax.set_title(name)
+        plt.savefig(args.save + ".dists.png")
