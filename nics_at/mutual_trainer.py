@@ -34,7 +34,7 @@ class MutualTrainer(Trainer):
             "epochs": 50,
             "batch_size": 100,
             "adjust_lr_acc": None,
-
+            "async_update_per_model": False,
 
             "alpha": 0.1,
             "beta": 0,
@@ -300,6 +300,7 @@ class MutualTrainer(Trainer):
                     self.input_holder_lst: [x_v if not self.FLAGS.distill_use_auged else auged_x_v] * self.mutual_num,
                     self.training_lst: [True] * self.mutual_num
                 })
+                normal_prob_lst_v = [normal_prob_lst_v[i] for i in range(self.mutual_num)]
                 info_lst_v = []
                 for mi in range(self.mutual_num):
                     # **FIXME**: using mutual trainer with mixup might not be so correct now;
@@ -330,6 +331,11 @@ class MutualTrainer(Trainer):
                         }
                         if not self.FLAGS.multi_grad_accumulate:
                             info_v, _ = sess.run([[self.ce_loss_lst[mi], self.kl_loss_lst[mi], self.loss_lst[mi], self.accuracy_lst[mi]], self.train_step_lst[mi]], feed_dict=feed_dict)
+                            if self.FLAGS.async_update_per_model and mi != self.mutual_num - 1: # update per-model's normal prob right after it's updated
+                                normal_prob_lst_v[mi] = sess.run(self.prob_lst[mi], feed_dict={
+                                    self.input_holder_lst[mi]: x_v if not self.FLAGS.distill_use_auged else auged_x_v,
+                                    self.training_lst[mi]: True
+                                })
                         else:
                             info_v, _ = sess.run([[self.ce_loss_lst[mi], self.kl_loss_lst[mi], self.loss_lst[mi], self.accuracy_lst[mi]], self.accum_ops_lst[mi]], feed_dict=feed_dict)
                         inner_info_v.append(info_v) # append each adv example info
