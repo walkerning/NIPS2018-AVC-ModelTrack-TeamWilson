@@ -36,6 +36,7 @@ parser.add_argument("--image-path", default=None) # "/home/foxfi/test_images/")
 parser.add_argument("--image-type", default=None, choices=[None, "img", "npy"])
 parser.add_argument("--other-type", default=None, choices=[None, "npy", "bin"])
 parser.add_argument("--plot-loss", action="store_true", default=False)
+parser.add_argument("--direct-only", action="store_true", default=False)
 
 args = parser.parse_args()
 
@@ -89,6 +90,15 @@ _name_sub = [
     ("iterative_transfer", "it"),
     ("transfer", "t")
 ]
+
+def get_grad_direction(name, img, label, normalize=None):
+    direct = models[_model_names_dct[name]].predictions_and_gradient(img, label)[1]
+    if normalize == "linf":
+        direct = np.sign(direct)
+    elif normalize == "l2":
+        direct = direct / np.sum(direct ** 2)
+    return direct
+
 def _santitize(path):
     path = os.path.normpath(path)
     path = path.strip("/").strip("./").replace("/", "-")
@@ -145,11 +155,12 @@ def find_orth(direct, another=None):
     if another is None:
         return direct_ort
     else:
-        return direct_ort, (weight_dire, weight_ort)
+        return direct_ort, (weight_dire, weight_ort), 1 - weight_dire / np.sqrt(weight_dire**2+weight_ort**2)
 
 if args.all: # test all images listed in the label file
     args.img_key = list(label_dct.keys())
 
+directn_angle_map = {}
 for ori_img_key in args.img_key:
     print("handle image: ", ori_img_key)
     # prepare directions
@@ -161,6 +172,8 @@ for ori_img_key in args.img_key:
         img = np.load(os.path.join(image_dir, ori_img_key)).astype(np.float32)
     else: # image_type == "img"
         img = imread(os.path.join(image_dir, ori_img_key)).astype(np.float32)
+        if len(img.shape) == 2:
+            img = np.tile(img[:,:,None], [1,1,3])
     label = label_dct[ori_img_key]
     img_key = os.path.basename(ori_img_key).split(".")[0]
     for plot_scfg in plot_cfg["directs"]:
@@ -175,9 +188,14 @@ for ori_img_key in args.img_key:
         if another_f is None:
             direct_orth = find_orth(direct)
         else:
-            another_img = load_example(another_f, img_key).astype(np.float32)
-            direct_orth, another_coor = find_orth(direct, another_img - img)
+            if another_f.startswith("grad:"):
+                adv_direct = get_grad_direction(another_f[5:], img, label, normalize=plot_scfg.get("gradient_normalize", None))
+            else:
+                another_img = load_example(another_f, img_key).astype(np.float32)
+                adv_direct = another_img - img
+            direct_orth, another_coor, one_minus_costheta = find_orth(direct, adv_direct)
             directn_point_map[direct_n].append((plot_scfg["another_name"], another_coor))
+            directn_angle_map.setdefault(direct_n, {})[img_key] = one_minus_costheta
         directn_cfg_map[direct_n] = plot_scfg
         direct_names.append(direct_n)
         directs.append((direct, direct_orth))
@@ -193,7 +211,7 @@ for ori_img_key in args.img_key:
     
     use_grad_names = [os.path.basename(cfg).split(".")[0] for cfg in args.use_grad]
     for use_grad in use_grad_names:
-        adv_direct = models[_model_names_dct[use_grad]].predictions_and_gradient(img, label)[1]
+        adv_direct = get_grad_direction(use_grad, img, label, normalize=plot_scfg.get("gradient_normalize", None))
         unn_dist = np.linalg.norm(adv_direct)
         direct = (adv_direct / unn_dist).reshape(-1)
         direct_names.append("grad-" + use_grad)
@@ -225,6 +243,9 @@ for ori_img_key in args.img_key:
     
     print("Evaluate on directions: ", direct_names)
     if not direct_names:
+        continue
+
+    if args.direct_only: # find direct only / do not evaluate the decision boundary
         continue
 
     # make result dir
@@ -334,3 +355,12 @@ for ori_img_key in args.img_key:
             # plt.suptitle("img {} - direct {} - {} - step {} {} grad".format(img_key, direct_n, test_name, step0, step1), fontsize=12)
             plt.savefig(os.path.join(s_res_dir, "dist_{}_{}-step_{}_{}-grad.png".format(dist[0], dist[1], step0, step1)))
         print("Save pictures and results to: ", s_res_dir)
+if directn_angle_map:
+    direct_ns, one_minus_costhetas = zip(*[(direct_n, list(values.values())) for direct_n, values in directn_angle_map.items()])
+    BIN = 12
+    bins = np.linspace(0, 2, BIN+1)
+    colors = np.random.rand(len(one_minus_costhetas), 3)
+    n, bins, _ = plt.hist(one_minus_costhetas, bins=bins, label=direct_ns, color=colors)
+    plt.legend(loc="upper right")
+    plt.title("1 - costheta histogram")
+    plt.savefig("./boundaries/theta_dist/{}.png".format(test_name))

@@ -1,12 +1,25 @@
 image_path: /home/foxfi/test_images
-label_file: results_new/m4/bigger_ims.yaml
+label_file: results_new/m4/bigger_ims_first30.yaml
 other_type: npy
 image_type: npy
 directs:
-  - direct_name: cw-resitransfer-on-m4
+  - direct_name: cw-m4grad-on-m4-test
     vertical_name: cw_on_m4
-    another_name: random_orth
+    another_name: m4_grad
     vertical: results_new/m4/cw_l2/
+    another: grad:m4
+    gradient_normalize: linf
+    size: "adjust"
+    adjust_ratio: 10
+    step: "auto"
+    im_size_max: 50
+    max_ratio: 2
+  - direct_name: cw-resgrad-on-resnet-test
+    vertical_name: cw_on_resnet
+    another_name: res_grad
+    vertical: results_new/resnet_baseline/cw_l2/
+    another: grad:resnet18
+    gradient_normalize: linf
     size: "adjust"
     adjust_ratio: 10
     step: "auto"
