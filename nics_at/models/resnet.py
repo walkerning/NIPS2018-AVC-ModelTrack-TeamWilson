@@ -19,6 +19,7 @@ class Resnet(QCNN):
         self.substract_mean = params.get("substract_mean", [123.68, 116.78, 103.94])
         if isinstance(self.substract_mean, str):
             self.substract_mean = np.load(self.substract_mean) # load mean from npy
+        self.wide = params.get("wide", 1)
         self.div = np.array(params.get("div", 1))
         self.num_classes = params.get("num_classes", 200)
         self.num_filters = 64
@@ -30,11 +31,11 @@ class Resnet(QCNN):
         self.second_pool_stride = 1
         self.block_sizes = [2, 2, 2, 2]
         self.block_strides = [1, 2, 2, 2]
-        self.final_size = 512
+        self.final_size = 512 * self.wide
         self.more_blocks = params.get("more_blocks", False)
         self.batch_norm_momentum = params.get("batch_norm_momentum", 0.997)
         self.coarse_dropout = params.get("coarse_dropout", None)
-        print("weight decay: {}; batch norm momentum: {}".format(self.weight_decay, self.batch_norm_momentum))
+        print("weight decay: {}; batch norm momentum: {}; wide: {}".format(self.weight_decay, self.batch_norm_momentum, self.wide))
         if self.coarse_dropout is not None:
             with tf.variable_scope(self.namescope):
                 # self.dropout_keep_prob = tf.placeholder(dtype=tf.float32, shape=[], name="coarse_dropout_keep_prob")
@@ -188,7 +189,7 @@ class Resnet(QCNN):
             inputs = tf.identity(inputs, 'initial_max_pool')
 
         for i, num_blocks in enumerate(self.block_sizes):
-            num_filters = self.num_filters * (2**i)
+            num_filters = self.num_filters * (2**i) * self.wide # wider block
             inputs = self.block_layer(
                 inputs=inputs, filters=num_filters, bottleneck=self.bottleneck,
                 block_fn=self.block_fn, blocks=num_blocks,
@@ -202,7 +203,6 @@ class Resnet(QCNN):
         inputs = tf.nn.relu(inputs)
         # if self.reuse == False:
         relu_list.append(tf.reduce_mean(inputs, [2,3]))
-
         # The current top layer has shape
         # `batch_size x pool_size x pool_size x final_size`.
         # ResNet does an Average Pooling layer over pool_size,
@@ -213,6 +213,7 @@ class Resnet(QCNN):
         inputs = tf.identity(inputs, 'final_reduce_mean')
 
         inputs = tf.reshape(inputs, [-1, self.final_size])
+
         self.layer_f1 = inputs
         readout_layer = tf.layers.Dense(
                 units=self.num_classes,
