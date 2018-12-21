@@ -22,7 +22,7 @@ class Resnet(QCNN):
         self.wide = params.get("wide", 1)
         self.div = np.array(params.get("div", 1))
         self.num_classes = params.get("num_classes", 200)
-        self.num_filters = 64
+        self.num_filters = params.get("num_filters", 64)
         self.kernel_size = 3
         self.conv_stride = 1
         self.first_pool_size = 0

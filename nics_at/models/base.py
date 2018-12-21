@@ -63,9 +63,26 @@ class QCNN(Model):
             self.patch_relu = lambda inputs: relu_func(inputs, self.relu_thresh)
             self._vars.append(self.relu_thresh)
 
+    def _all_update_ops(self):
+        return tf.get_collection(tf.GraphKeys.UPDATE_OPS, self.namescope)
+
+    @property
+    def update_ops(self):
+        only_updatable = self.params.get("updatable", None)
+        update_ops = self._all_update_ops()
+        if only_updatable is None:
+            # must have namescope here
+            return update_ops
+        else:
+            return [op for op in update_ops if any(pattern in op.name for pattern in only_updatable)]
+
     @property
     def trainable_vars(self):
-        return self._trainable_vars
+        only_trainable = self.params.get("trainable", None)
+        if only_trainable is None:
+            return self._trainable_vars
+        else:
+            return [var for var in self._trainable_vars if any(pattern in var.op.name for pattern in only_trainable)]
 
     @property
     def vars(self):

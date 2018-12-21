@@ -69,6 +69,9 @@ class DenoiseNet(QCNN):
         self.denoiser = QCNN.create_model(params["denoiser"])
         self.inner_model = QCNN.create_model(params["model"])
 
+    def _all_update_ops(self):
+        return tf.get_collection(tf.GraphKeys.UPDATE_OPS, self.namescope + "/" + self.params["denoiser"]["namescope"])
+
     @property
     def trainable_vars(self):
         return self.denoiser.trainable_vars + self.inner_model.trainable_vars

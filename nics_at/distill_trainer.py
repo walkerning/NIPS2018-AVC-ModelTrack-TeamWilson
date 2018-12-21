@@ -35,6 +35,7 @@ class DistillTrainer(Trainer):
             "available_attacks_gray": [],
 
             # Training
+            "multiple_head_loss": False,
             "mixup_alpha": 1.0,
             "distill_use_auged": False, # 一个谜一样的bug
             "epochs": 50,
@@ -144,8 +145,11 @@ class DistillTrainer(Trainer):
             self.distillation = tf.constant(0.0)
 
         reshape_labels = tf.reshape(tf.tile(tf.expand_dims(self.labels, 1), [1, tile_num, 1]), [-1, self.num_labels])
-        self.original_loss = tf.reduce_mean(
-            tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=self.logits_stu))
+        if not self.FLAGS.multiple_head_loss:
+            self.original_loss = tf.reduce_mean(
+                tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=self.logits_stu))
+        else:
+            self.original_loss = tf.reduce_mean([self.FLAGS.multiple_head_loss[i] * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=logits)) for i, logits in enumerate(self.model_stu.cached[self.stu_x]["group_logits_list"] + [self.logits_stu])])
 
         self.loss = self.original_loss * self.FLAGS.theta
         if self.FLAGS.alpha != 0:
@@ -175,10 +179,11 @@ class DistillTrainer(Trainer):
         self.learning_rate = tf.placeholder(tf.float32, shape=[])
         self.lr_adjuster = LrAdjuster.create_adjuster(self.FLAGS.adjust_lr_acc)
         optimizer = tf.train.MomentumOptimizer(self.learning_rate, momentum=0.9)
-        if not self.FLAGS.use_denoiser:
-            update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, self.FLAGS.model["namescope"]) # NOTE: student must have a non-empty namescope
-        else:
-            update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, self.FLAGS.model["namescope"] + "/" + self.FLAGS.model["model_params"]["denoiser"]["namescope"]) # NOTE: student must have a non-empty namescope
+        # if not self.FLAGS.use_denoiser:
+        #     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, self.FLAGS.model["namescope"]) # NOTE: student must have a non-empty namescope
+        # else:
+        #     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, self.FLAGS.model["namescope"] + "/" + self.FLAGS.model["model_params"]["denoiser"]["namescope"]) # NOTE: student must have a non-empty namescope
+        update_ops = self.model_stu.update_ops
 
         if self.FLAGS.multi_grad_accumulate:
             tvs = tf.trainable_variables()
