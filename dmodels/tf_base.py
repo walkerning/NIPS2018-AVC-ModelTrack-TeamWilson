@@ -11,9 +11,10 @@ class BaseTFModel(BaseModel):
     @classmethod
     def create_fmodel(cls, cfg):
         model = cls.create_model(cfg)
-        sess = model.load_checkpoint(cfg["checkpoint"], cfg.get("load_name_space", None))
-        with sess.as_default():
+        model.sess = model.load_checkpoint(cfg["checkpoint"], cfg.get("load_name_space", None))
+        with model.sess.as_default():
             fmodel = TensorFlowModel(model._images, model._logits, bounds=(0, 255))
+        fmodel.model = model
         return fmodel
     
     @classmethod

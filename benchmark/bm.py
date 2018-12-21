@@ -2,6 +2,7 @@
 import os
 import sys
 import pwd
+import yaml
 import random
 import logging
 import datetime
@@ -9,6 +10,7 @@ import argparse
 import subprocess
 
 import numpy as np
+import cv2
 import pandas as pd
 
 import foolbox
@@ -19,13 +21,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import *
 import attacks
 from attacks import *
+import vis
+
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib import pyplot as plt
 
 avail_attacks = [n.rsplit("_", 1)[0] for n in attacks.__all__]
 bms = {n: globals()[n + "_attack"] for n in avail_attacks}
 bms.update({n+"_targeted": globals()[n + "_attack"] for n in avail_attacks})
 avail_attacks = bms.keys()
 
-def main(reader, types, save, backward_cfg=None, forward_cfg=None, verbose=False, addi_name=None, adv_pattern_dir=None):
+def main(reader, types, save, backward_cfg=None, forward_cfg=None, verbose=False, addi_name=None, adv_pattern_dir=None,
+         save_saliency=None, saliency_type=None, targeted_labels=None):
     if forward_cfg is None:
         print("Using container, addi_name: {}".format(addi_name))
         # instantiate blackbox and substitute model
@@ -66,7 +74,12 @@ def main(reader, types, save, backward_cfg=None, forward_cfg=None, verbose=False
         transfer_model = foolbox.models.CompositeModel(
             forward_model=forward_model,
             backward_model=backward_model)
-
+    any_targeted = False
+    if any([n.endswith("targeted") for n in types]):
+        any_targeted = True
+        if targeted_labels:
+            with open(targeted_labels, "r") as f:
+                targeted_labels = yaml.load(f)
 
     distances = [[] for _ in types]
     clean_predicts = []
@@ -75,11 +88,25 @@ def main(reader, types, save, backward_cfg=None, forward_cfg=None, verbose=False
     num_test = 0
     not_adv = {tp: 0 for tp in types}
     dataset_num_classes = reader.num_classes
+    def _save_saliency(s_type, model, image, label):
+        saliency_im = vis.visualize(s_type, model, image, label)
+        fig = plt.figure()
+        ax = plt.subplot(131)
+        ax.imshow(image.astype(np.uint8))
+        ax = plt.subplot(132)
+        ax.imshow(saliency_im.astype(np.uint8))
+        ax = plt.subplot(133)
+        cv2.addWeighted(saliency_im, 0.5, image, 0.5, 0, saliency_im)
+        ax.imshow(saliency_im.astype(np.uint8))
+        plt.savefig(os.path.join(save_saliency, s_type, "{}.png".format(os.path.basename(file_name))))
     for ind, (file_name, image, label) in enumerate(reader.read_images()):
         num_test += 1
         predict_label = np.argmax(forward_model.predictions(image))
         clean_predict = [file_name.split(".")[0], label, predict_label]
         print("image {}: {} {}".format(file_name, label, predict_label))
+        if save_saliency: # save saliency map
+            for s_type in saliency_type:
+                _save_saliency(s_type, forward_model, image, label)
         if predict_label != label:
             accuracy_counter += 1
         if adv_pattern_dir:
@@ -87,8 +114,11 @@ def main(reader, types, save, backward_cfg=None, forward_cfg=None, verbose=False
             adv_pattern = adv_im - image
             before = np.argmax(forward_model.predictions(adv_im))
             adv_pattern_predict = [file_name.split(".")[0], label, before]
-
-        target_label = (label + random.randint(1,reader.num_classes-1)) % reader.num_classes
+        if any_targeted:
+            if targeted_labels:
+                target_label = targeted_labels[file_name]
+            else:
+                target_label = (label + random.randint(1,reader.num_classes-1)) % reader.num_classes
         for it, tp in enumerate(types):
             with substitute_argscope(foolbox.Adversarial, {"distance": foolbox.distances.Linf if "pgd" in tp else foolbox.distances.MSE}):
                 if "_targeted" in tp: # targeted attack!
@@ -172,6 +202,9 @@ if __name__ == '__main__':
     parser.add_argument("--backward-cfg", default=None)
     parser.add_argument("--forward-cfg", metavar="FORWARD_CFG", default=None, help="if FORWARD_CFG is specified, will not use docker.")
     parser.add_argument("--adv-pattern-dir", default=None, help="If specified, will evaluate the transferability adv directions to the all the transfer types")
+    parser.add_argument("--save-saliency", default=None, help="Save saliency map to directory.")
+    parser.add_argument("-s", "--saliency-type", default=["gradient"], action="append", choices=vis.available_methods, help="Save saliency map to directory.")
+    parser.add_argument("--targeted-labels", default=None, help="A yaml file includes targeted label for every image, will use this label instead of random label in targeted attack.")
 
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
@@ -181,6 +214,9 @@ if __name__ == '__main__':
         os.environ["OUTPUT_ADVERSARIAL_PATH"] = args.save
         for tp in args.type:
             os.makedirs(os.path.join(args.save, tp), exist_ok=True)
+    if args.save_saliency is not None:
+        for s_type in args.saliency_type:
+            os.makedirs(os.path.join(args.save_saliency, s_type), exist_ok=True)
 
     if args.verbose:
         print("verbose")
@@ -194,4 +230,4 @@ if __name__ == '__main__':
 
     print("CMD: ", " ".join(sys.argv))
 
-    main(reader, args.type, args.save is not None, args.backward_cfg, args.forward_cfg, verbose=args.verbose, addi_name=args.name, adv_pattern_dir=args.adv_pattern_dir)
+    main(reader, args.type, args.save is not None, args.backward_cfg, args.forward_cfg, verbose=args.verbose, addi_name=args.name, adv_pattern_dir=args.adv_pattern_dir, save_saliency=args.save_saliency, saliency_type=args.saliency_type, targeted_labels=args.targeted_labels)

@@ -354,6 +354,7 @@ class ResNet(BaseTFModel):
                conv_stride, first_pool_size, first_pool_stride,
                second_pool_size, second_pool_stride, block_sizes, block_strides,
                final_size, version=DEFAULT_VERSION, data_format=None, name=None,
+               wide=1,
                substract_mean=[123.68, 116.78, 103.94], div=1., 
                name_space=""):
     """Creates a model for classifying an image.
@@ -388,6 +389,7 @@ class ResNet(BaseTFModel):
       ValueError: if invalid version is selected.
     """
     super(ResNet, self).__init__()
+    self.gradcam_pic = None
     self.name = name or "resnet"
     self.resnet_size = resnet_size
 
@@ -412,6 +414,7 @@ class ResNet(BaseTFModel):
       else:
         self.block_fn = _building_block_v2
 
+    self.wide = wide
     self.data_format = data_format
     self.num_classes = num_classes
     self.num_filters = num_filters
@@ -423,7 +426,8 @@ class ResNet(BaseTFModel):
     self.second_pool_stride = second_pool_stride
     self.block_sizes = block_sizes
     self.block_strides = block_strides
-    self.final_size = final_size
+    # self.final_size = final_size * self.wide
+    self.final_size = self.num_filters * (2**(len(self.block_sizes)-1)) * self.wide
 
     self.substract_mean = substract_mean
     if isinstance(self.substract_mean, str):
@@ -444,6 +448,7 @@ class ResNet(BaseTFModel):
     Returns:
       A logits Tensor with shape [<batch_size>, self.num_classes].
     """
+    input_size = tf.shape(inputs)[1:3]
     with tf.variable_scope(self.name_space):
       inputs = inputs - tf.cast(tf.constant(self.substract_mean), tf.float32)
       if self.div and not np.all(self.div == 1.):
@@ -467,7 +472,7 @@ class ResNet(BaseTFModel):
         inputs = tf.identity(inputs, 'initial_max_pool')
 
       for i, num_blocks in enumerate(self.block_sizes):
-        num_filters = self.num_filters * (2**i)
+        num_filters = self.num_filters * (2**i) * self.wide
         inputs = block_layer(
             inputs=inputs, filters=num_filters, bottleneck=self.bottleneck,
             block_fn=self.block_fn, blocks=num_blocks,
@@ -476,6 +481,8 @@ class ResNet(BaseTFModel):
 
       inputs = batch_norm(inputs, training, self.data_format)
       inputs = tf.nn.relu(inputs)
+
+      final_conv = inputs
 
       # The current top layer has shape
       # `batch_size x pool_size x pool_size x final_size`.
@@ -492,6 +499,18 @@ class ResNet(BaseTFModel):
           name='readout_layer')
       inputs = readout_layer(inputs)
       inputs = tf.identity(inputs, 'final_dense')
+
+      # For gradcam
+      one_hot = tf.one_hot(tf.argmax(inputs, axis=1), self.num_classes)
+      grad_weights = tf.reduce_sum(inputs * one_hot)
+      grad = tf.gradients(grad_weights, final_conv)
+      mean_grad = tf.reduce_mean(grad[0], [2,3])
+      weighted_grad = tf.transpose(tf.reduce_mean(final_conv * mean_grad[:, :, None, None], axis=1, keepdims=True), [0, 2, 3, 1])
+      heatmap = tf.image.resize_bicubic(images=weighted_grad, size=input_size)
+      heatmap = tf.maximum(heatmap, 0)
+      heatmap = tf.cast(heatmap / tf.reduce_max(heatmap) * 255., tf.float32)
+      self.gradcam_pic = heatmap
+
       return inputs
 
 Model = ResNet

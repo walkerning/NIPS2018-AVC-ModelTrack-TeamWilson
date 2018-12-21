@@ -1,4 +1,11 @@
 # -*- coding: utf-8 -*-
+"""
+Plot 2d-projection of the:
+1. boundaries/loss landscape of multiple models around some data points
+2. histogram direction angles...
+The 2 directions can be choosed by adv direction/gradient direction, see plotcfg/*.yaml for how to configure which 2 direction to use.
+"""
+
 from __future__ import print_function
 
 import os
@@ -11,9 +18,10 @@ import numpy as np
 from scipy.misc import imread
 import matplotlib
 import matplotlib as mpl
-from mpl_toolkits.mplot3d import Axes3D
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
+
+# from mpl_toolkits.mplot3d import Axes3D
 
 from utils import create_fmodel_cfg
 

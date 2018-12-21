@@ -8,6 +8,7 @@ __all__ = [
     "cw_l2_attack",
     "gaussian_attack", "saltnpepper_attack", "boundary_attack", "transfer_attack",
     "iterative_transfer_attack", "pgd_transfer_attack", "pgd_005_transfer_attack",
+    "pgd_0031_00078_7_last_transfer_attack", "pgd_0031_00078_20_last_transfer_attack",
     "pgd_0063_00078_10_re_transfer_attack", # actually a bit stricter than fixed eps=16/step=2 and find the accuracy
     "pgd_0063_00078_10_last_transfer_attack",
     "pgd_03_001_40_re_transfer_attack", "pgd_03_001_40_bs_transfer_attack",
@@ -42,6 +43,18 @@ def cw_l2_transfer_attack(model, image, label, criterion, verbose=False):
     return attack(image, label, max_iterations=500)
 
 cw_l2_attack = cw_l2_transfer_attack
+
+@add_target_wrapper
+def pgd_0031_00078_7_last_transfer_attack(model, image, label, criterion, verbose=False):
+    attack = foolbox.attacks.PGD(model, criterion)
+    with substitute_argscope(foolbox.Adversarial, {"return_last": True}):
+        return attack(image, label, binary_search=False, epsilon=0.031, stepsize=0.0078, iterations=7, return_early=False)
+
+@add_target_wrapper
+def pgd_0031_00078_20_last_transfer_attack(model, image, label, criterion, verbose=False):
+    attack = foolbox.attacks.PGD(model, criterion)
+    with substitute_argscope(foolbox.Adversarial, {"return_last": True}):
+        return attack(image, label, binary_search=False, epsilon=0.031, stepsize=0.0078, iterations=20, return_early=False)
 
 @add_target_wrapper
 def pgd_0063_00078_10_last_transfer_attack(model, image, label, criterion, verbose=False):
