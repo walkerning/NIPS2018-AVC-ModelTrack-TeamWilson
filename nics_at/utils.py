@@ -15,8 +15,9 @@ class AvailModels(object):
     registries = {None: {}}
 
     @classmethod
-    def add(cls, model, x, y, tag=None):
-        cls.registries.setdefault(tag, {})[model.namescope] = (model, x, y)
+    def add(cls, model, x, y, tag=None, name=None):
+        name = name or model.namescope
+        cls.registries.setdefault(tag, {})[name] = (model, x, y)
 
     @classmethod
     def get_model(cls, mid, tag=None):

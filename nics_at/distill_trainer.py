@@ -10,7 +10,7 @@ from collections import OrderedDict
 import numpy as np
 import tensorflow as tf
 
-from models import QCNN
+from models import QCNN, QCNNProxy
 import utils
 from utils import AvailModels, LrAdjuster
 from attacks import Attack, AttackGenerator
@@ -149,6 +149,13 @@ class DistillTrainer(Trainer):
             self.original_loss = tf.reduce_mean(
                 tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=self.logits_stu))
         else:
+            def get_ith_group_logits(i):
+                def _get_logits(self_, inputs_):
+                    return self.model_stu.get_logits(inputs_, output_name="group_logits_list")[i]
+                return _get_logits
+            for i, logits in enumerate(self.model_stu.cached[self.stu_x]["group_logits_list"]):
+                model = QCNNProxy(self.model_stu, get_ith_group_logits(i))
+                AvailModels.add(model, self.stu_x, logits, name="{}_group_head_{}".format(self.model_stu.namescope, i))
             self.original_loss = tf.reduce_mean([self.FLAGS.multiple_head_loss[i] * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=logits)) for i, logits in enumerate(self.model_stu.cached[self.stu_x]["group_logits_list"] + [self.logits_stu])])
 
         self.loss = self.original_loss * self.FLAGS.theta

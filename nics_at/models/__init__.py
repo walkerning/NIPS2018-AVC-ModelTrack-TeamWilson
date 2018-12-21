@@ -1,5 +1,6 @@
-from base import QCNN
+from base import QCNN, QCNNProxy
 import resnet
+import resnet_multiple
 import inception
 import vgg11
 import vgg9

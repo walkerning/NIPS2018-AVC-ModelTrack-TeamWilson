@@ -7,7 +7,7 @@ _BATCH_NORM_EPSILON = 1e-5
 DEFAULT_VERSION = 2
 
 class Resnet(QCNN):
-    TYPE = "resnet18"
+    TYPE = "resnet18_multiple"
     def __init__(self, namescope, params={}):
         super(Resnet, self).__init__(namescope, params)
 
@@ -22,21 +22,19 @@ class Resnet(QCNN):
         self.wide = params.get("wide", 1)
         self.div = np.array(params.get("div", 1))
         self.num_classes = params.get("num_classes", 200)
-        self.num_filters = params.get("num_filters", 64)
-        self.block_sizes = params.get("block_sizes", [2, 2, 2, 2])
-        self.block_strides = params.get("block_strides", [1, 2, 2, 2])
-        self.final_size = self.num_filters * (2**(len(self.block_sizes)-1)) * self.wide
-        self.more_blocks = params.get("more_blocks", False)
-        self.batch_norm_momentum = params.get("batch_norm_momentum", 0.997)
-        self.coarse_dropout = params.get("coarse_dropout", None)
-
+        self.num_filters = 64
         self.kernel_size = 3
         self.conv_stride = 1
         self.first_pool_size = 0
         self.first_pool_stride = 2
         self.second_pool_size = 7
         self.second_pool_stride = 1
-
+        self.block_sizes = [2, 2, 2, 2]
+        self.block_strides = [1, 2, 2, 2]
+        self.final_size = 512 * self.wide
+        self.more_blocks = params.get("more_blocks", False)
+        self.batch_norm_momentum = params.get("batch_norm_momentum", 0.997)
+        self.coarse_dropout = params.get("coarse_dropout", None)
         print("weight decay: {}; batch norm momentum: {}; wide: {}".format(self.weight_decay, self.batch_norm_momentum, self.wide))
         if self.coarse_dropout is not None:
             with tf.variable_scope(self.namescope):
@@ -51,14 +49,14 @@ class Resnet(QCNN):
                 # self.dropout_div_w = tf.placeholder(dtype=tf.int32, shape=[], name="coarse_dropout_div_w")
                 print("coarse dropout keep prob: {}".format(self.dropout_keep_prob))
 
-    def batch_norm(self, inputs, training, data_format):
+    def batch_norm(self, inputs, training, data_format, name=None):
         """Performs a batch normalization using a standard set of parameters."""
         # We set fused=True for a significant performance boost. See
         # https://www.tensorflow.org/performance/performance_guide#common_fused_ops
         return tf.layers.batch_normalization(
                 inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
                 momentum=self.batch_norm_momentum, epsilon=_BATCH_NORM_EPSILON, center=True,
-                scale=True, training=training, fused=True)
+                scale=True, training=training, fused=True, name=name)
 
 
     def fixed_padding(self, inputs, kernel_size, data_format):
@@ -223,8 +221,10 @@ class Resnet(QCNN):
         inputs = readout_layer(inputs)
         inputs = tf.identity(inputs, 'final_dense')
 
+        group_logits_list = [tf.layers.Dense(units=self.num_classes, name="readout_group_{}".format(i))(tf.reduce_mean(tf.nn.relu(self.batch_norm(o, self.training, self.data_format, name="bn_readout_group_{}".format(i))), axes)) for i, o in enumerate(group_list[:-1])]
         return {
             "logits": inputs,
             "group_list": group_list,
-            "relu_list": relu_list
+            "relu_list": relu_list,
+            "group_logits_list": group_logits_list
         }

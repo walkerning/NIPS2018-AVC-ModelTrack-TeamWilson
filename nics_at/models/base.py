@@ -91,15 +91,16 @@ class QCNN(Model):
     def get_training_status(self):
         return self.training
 
-    def get_logits(self, inputs):
+    def get_logits(self, inputs, output_name=None):
         """
         :param x: A symbolic representation of the network input
         :return: A symbolic representation of the output logits (i.e., the
                  values fed as inputs to the softmax layer).
         """
+        output_name = output_name or self.output_name
         if inputs in self.cached:
             [setattr(self, n, v) for n, v in self.cached[inputs].iteritems()]
-            return self.cached[inputs][self.output_name]
+            return self.cached[inputs][output_name]
         if self.cached:
             self.reuse = True
         else:
@@ -130,7 +131,7 @@ class QCNN(Model):
                     if var_ in _after_t_vars:
                         _after_t_vars.remove(var_)
                 self._trainable_vars += _after_t_vars
-        return res[self.output_name]
+        return res[output_name]
 
     def get_probs(self, x):
         return tf.nn.softmax(self.get_logits(x))
@@ -162,3 +163,12 @@ class QCNN(Model):
 
     def save_checkpoint(self, path, sess, prepend_namescope=None):
         self.get_save_saver(prepend=prepend_namescope).save(sess, path)
+
+class QCNNProxy(Model): # Patch get_logits func, and proxy all other attribute to proxy_model
+    def __init__(self, proxy_model, patch_get_logits):
+        super(Model, self).__init__()
+        self.proxy_model = proxy_model
+        self.get_logits = patch_get_logits.__get__(self)
+
+    def __getattr__(self, name):
+        return getattr(self.proxy_model, name)
