@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import cleverhans
 from cleverhans.model import Model, CallableModelWrapper
 
@@ -213,3 +214,36 @@ class MadryEtAl_transfer_re(MadryEtAl_transfer): # transfer and return early
 
 class MadryEtAl_L2_transfer_re(MadryEtAl_transfer_re, MadryEtAl_L2):
     pass
+
+class Langevin_transfer(MadryEtAl_transfer):
+    def attack_single_step(self, x, eta, y):
+        """
+        Given the original image and the perturbation computed so far, computes
+        a new perturbation.
+
+        :param x: A tensor with the original input.
+        :param eta: A tensor the same shape as x that holds the perturbation.
+        :param y: A tensor with the target labels or ground-truth labels.
+        """
+        import tensorflow as tf
+        from cleverhans.utils_tf import clip_eta
+        from cleverhans.loss import attack_softmax_cross_entropy
+        import numpy as np
+
+        noise = T * tf.random_normal(tf.shape(x), 0, np.sqrt(self.eps_iter), dtype=self.tf_dtype) # FIXME: 和gradient的具体大小无关吗..感觉需要有点关系吧... 或者做个pre-condition
+        adv_x = x + eta + noise
+        transfer_logits = self.transfer_model.get_logits(adv_x)
+        # **TODO**: you can add another prior, to guide the attack to generate smaller gradient. (maybe more preferable for better attack... try it)
+        transfer_loss = attack_softmax_cross_entropy(y, transfer_logits) # 对于多张图片一起做一个adv pattern这个pattern会有语义吗...
+        if self.targeted:
+            transfer_loss = -transfer_loss
+        grad, = tf.gradients(transfer_loss, adv_x)
+        scaled_signed_grad = self.eps_iter * tf.sign(grad)
+        adv_x = adv_x + scaled_signed_grad
+        if self.clip_min is not None and self.clip_max is not None:
+            adv_x = tf.clip_by_value(adv_x, self.clip_min, self.clip_max)
+        adv_x = tf.stop_gradient(adv_x)
+        eta = adv_x - x
+        eta = clip_eta(eta, self.ord, self.eps)
+        return eta
+

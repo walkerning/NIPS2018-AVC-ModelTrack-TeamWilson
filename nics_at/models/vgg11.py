@@ -15,6 +15,8 @@ class VGG11(QCNN):
             self.substract_mean = np.load(self.substract_mean) # load mean from npy
         self.div = np.array(params.get("div", 1))
         self.filter_size_div = params.get("filter_size_div", 1)
+        self.use_bn = params.get("use_bn", True)
+        self.use_bias = params.get("use_bias", True)
 
     def _get_logits(self, inputs):
         weight_decay = self.weight_decay
@@ -25,8 +27,11 @@ class VGG11(QCNN):
              strides=(stride_,stride_), padding="same", use_bias=False,
              kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay),
              kernel_initializer=tf.contrib.layers.variance_scaling_initializer(), name=name_scope + "conv"+str(index_))
-            bn_ = tf.contrib.layers.batch_norm(conv_, is_training=self.training, scale=True,
-                 scope=name_scope+"bn"+str(index_), decay=0.9)
+            if self.use_bn:
+                bn_ = tf.contrib.layers.batch_norm(conv_, is_training=self.training, scale=True,
+                                                   scope=name_scope+"bn"+str(index_), decay=0.9)
+            else:
+                bn_ = conv_
             relu_ = tf.nn.relu(bn_, name=name_scope + "relu"+str(index_))
             if use_pool:
                 pool_ = tf.layers.max_pooling2d(relu_, name=name_scope+"pool"+str(index_), pool_size=(2, 2), strides=2)
@@ -45,15 +50,19 @@ class VGG11(QCNN):
         conv5_1, relu5_1 = conv_relu_pool(pool4, 7, 512, use_pool=False)
         conv5_2, relu5_2, pool5 = conv_relu_pool(relu5_1, 8, 512, use_pool=True)
         flat = tf.contrib.layers.flatten(pool5)
-        ip1 = tf.layers.dense(flat, units=2048/self.filter_size_div, name="ip1",
+        flat = tf.layers.dropout(flat, 0.5, training=self.training)
+        # ip1 = tf.layers.dense(flat, units=2048/self.filter_size_div, name="ip1",
+        ip1 = tf.layers.dense(flat, units=512/self.filter_size_div, name="ip1",
                              kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
-                             kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay))
+                              kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay), use_bias=self.use_bias)
         relu6 = tf.nn.relu(ip1, name="relu6")
-        ip2 = tf.layers.dense(relu6, units=2048/self.filter_size_div, name="ip2",
+        relu6 = tf.layers.dropout(relu6, 0.5, training=self.training)
+        # ip2 = tf.layers.dense(relu6, units=2048/self.filter_size_div, name="ip2",
+        ip2 = tf.layers.dense(relu6, units=512/self.filter_size_div, name="ip2",
                              kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
-                             kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay))
+                             kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay), use_bias=self.use_bias)
         relu7 = tf.nn.relu(ip2, name="relu7")
         logits = tf.layers.dense(relu7, units=self.num_classes, name="logits",
                              kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
-                             kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay))
+                             kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=weight_decay), use_bias=self.use_bias)
         return {"logits": logits}

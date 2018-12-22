@@ -15,6 +15,8 @@ class VGG9(QCNN):
             self.substract_mean = np.load(self.substract_mean) # load mean from npy
         self.div = np.array(params.get("div", 1))
         self.filter_size_div = params.get("filter_size_div", 1)
+        self.use_bn = params.get("use_bn", True)
+        self.use_bias = params.get("use_bias", True)
 
     def _get_logits(self, inputs):
         weight_decay = self.weight_decay
@@ -25,8 +27,11 @@ class VGG9(QCNN):
              strides=(stride_,stride_), padding="same", use_bias=False,
              kernel_regularizer=None if self.test_only else tf.contrib.layers.l2_regularizer(scale=weight_decay),
              kernel_initializer=tf.contrib.layers.variance_scaling_initializer(), name=name_scope + "conv"+str(index_))
-            bn_ = tf.contrib.layers.batch_norm(conv_, is_training=self.training, scale=True,
-                 scope=name_scope+"bn"+str(index_), decay=0.9)
+            if self.use_bn:
+                bn_ = tf.contrib.layers.batch_norm(conv_, is_training=self.training, scale=True,
+                                                   scope=name_scope+"bn"+str(index_), decay=0.9)
+            else:
+                bn_ = conv_
             relu_ = tf.nn.relu(bn_, name=name_scope + "relu"+str(index_))
             if use_pool:
                 pool_ = tf.layers.max_pooling2d(relu_, name=name_scope+"pool"+str(index_), pool_size=(2, 2), strides=2)
@@ -47,5 +52,6 @@ class VGG9(QCNN):
         flat = tf.contrib.layers.flatten(pool5)
         logits = tf.layers.dense(flat, units=self.num_classes, name="logits",
                                  kernel_initializer=tf.contrib.layers.variance_scaling_initializer(),
-                                 kernel_regularizer=None if self.test_only else tf.contrib.layers.l2_regularizer(scale=weight_decay))
+                                 kernel_regularizer=None if self.test_only else tf.contrib.layers.l2_regularizer(scale=weight_decay),
+                                 use_bias=self.use_bias)
         return {"logits": logits}

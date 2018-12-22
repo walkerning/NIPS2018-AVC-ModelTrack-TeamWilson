@@ -29,6 +29,7 @@ class Resnet(QCNN):
         self.more_blocks = params.get("more_blocks", False)
         self.batch_norm_momentum = params.get("batch_norm_momentum", 0.997)
         self.coarse_dropout = params.get("coarse_dropout", None)
+        self.use_bias = params.get("use_bias", True)
 
         self.kernel_size = 3
         self.conv_stride = 1
@@ -55,10 +56,16 @@ class Resnet(QCNN):
         """Performs a batch normalization using a standard set of parameters."""
         # We set fused=True for a significant performance boost. See
         # https://www.tensorflow.org/performance/performance_guide#common_fused_ops
-        return tf.layers.batch_normalization(
+        if self.use_bias:
+            return tf.layers.batch_normalization(
                 inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
                 momentum=self.batch_norm_momentum, epsilon=_BATCH_NORM_EPSILON, center=True,
                 scale=True, training=training, fused=True)
+        else:
+            return tf.layers.batch_normalization(
+                inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
+                momentum=self.batch_norm_momentum, epsilon=_BATCH_NORM_EPSILON, center=False,
+                scale=False, training=training, fused=True)
 
 
     def fixed_padding(self, inputs, kernel_size, data_format):
@@ -219,7 +226,8 @@ class Resnet(QCNN):
         self.layer_f1 = inputs
         readout_layer = tf.layers.Dense(
                 units=self.num_classes,
-                name='readout_layer')
+                name='readout_layer',
+            use_bias=self.use_bias)
         inputs = readout_layer(inputs)
         inputs = tf.identity(inputs, 'final_dense')
 

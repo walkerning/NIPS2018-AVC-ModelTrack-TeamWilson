@@ -12,12 +12,13 @@ from foolbox.models import TensorFlowModel
 
 from nics_at import utils
 from nics_at.utils import AvailModels, profiling
-from pgd_variants import MadryEtAl_L2, MadryEtAl_transfer, MadryEtAl_transfer_re, MadryEtAl_KLloss, MadryEtAl_L2_transfer_re
+from pgd_variants import MadryEtAl_L2, MadryEtAl_transfer, MadryEtAl_transfer_re, MadryEtAl_KLloss, MadryEtAl_L2_transfer_re, Langevin_transfer
 cleverhans.attacks.MadryEtAl_L2 = MadryEtAl_L2
 cleverhans.attacks.MadryEtAl_transfer = MadryEtAl_transfer
 cleverhans.attacks.MadryEtAl_transfer_re = MadryEtAl_transfer_re
 cleverhans.attacks.MadryEtAl_L2_transfer_re = MadryEtAl_L2_transfer_re
 cleverhans.attacks.MadryEtAl_KLloss = MadryEtAl_KLloss
+cleverhans.attacks.Langevin_transfer = Langevin_transfer
 
 @contextlib.contextmanager
 def substitute_argscope(_callable, dct):
@@ -276,7 +277,9 @@ class CleverhansAttack(Attack):
         "re_transfer_pgd": "MadryEtAl_transfer_re",
         "l2_re_transfer_pgd": "MadryEtAl_L2_transfer_re",
         "l2_pgd": "MadryEtAl_L2",
+        "l2_transfer_pgd": "MadryEtAl_L2",
         "momentum_pgd": "MomentumIterativeMethod",
+        "langevin_transfer": "Langevin_transfer",
         "kl_vat": "MadryEtAl_KLloss" # https://github.com/takerum/vat
     }
     def __init__(self, sess, cfg):
