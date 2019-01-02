@@ -35,7 +35,9 @@ class DistillTrainer(Trainer):
             "available_attacks_gray": [],
 
             # Training
+            "gradient_smooth_reg": 0,
             "multiple_head_loss": False,
+            "use_mixup": False,
             "mixup_alpha": 1.0,
             "distill_use_auged": False, # 一个谜一样的bug
             "epochs": 50,
@@ -159,6 +161,15 @@ class DistillTrainer(Trainer):
             self.original_loss = tf.reduce_mean([self.FLAGS.multiple_head_loss[i] * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=logits)) for i, logits in enumerate(self.model_stu.cached[self.stu_x]["group_logits_list"] + [self.logits_stu])])
 
         self.loss = self.original_loss * self.FLAGS.theta
+        if self.FLAGS.gradient_smooth_reg: # input gradient smoothness of crossentropy loss
+            self.input_gradient = tf.gradients(self.original_loss * self.FLAGS.theta, self.stu_x)[0]
+            vert_grad_diff = self.input_gradient[:, :-1, :, :] - self.input_gradient[:, 1:, :, :]
+            hori_grad_diff = self.input_gradient[:, :, :-1, :] - self.input_gradient[:, :, 1:, :]
+            grad_local_diff = tf.reduce_sum(tf.reduce_mean(vert_grad_diff ** 2, axis=0)) + tf.reduce_sum(tf.reduce_mean(hori_grad_diff ** 2, axis=0))
+            self.grad_smooth_loss = self.FLAGS.gradient_smooth_reg * grad_local_diff
+            self.loss += self.grad_smooth_loss
+        else:
+            self.grad_smooth_loss = tf.constant(0.0)
         if self.FLAGS.alpha != 0:
             self.loss += self.distillation * self.FLAGS.alpha
         if self.FLAGS.beta != 0:
@@ -227,7 +238,8 @@ class DistillTrainer(Trainer):
         for epoch in range(1, self.FLAGS.epochs+1):
             self.train_attack_gen.new_epoch()
             start_time = time.time()
-            info_v_epoch = np.zeros((self.FLAGS.update_per_batch, 5))
+            # info_v_epoch = np.zeros((self.FLAGS.update_per_batch, 5))
+            info_v_epoch = np.zeros((self.FLAGS.update_per_batch, 6))
             now_lr = self.lr_adjuster.get_lr()
             if now_lr is None:
                 utils.log("End training as val acc not decay!!!")
@@ -260,7 +272,8 @@ class DistillTrainer(Trainer):
                 inner_info_v = []
                 run_start_time = time.time()
                 if step == 1 and info_v_epoch.shape[0] != len(adv_xs):
-                    info_v_epoch = np.zeros((len(adv_xs), 5))
+                    # info_v_epoch = np.zeros((len(adv_xs), 5))
+                    info_v_epoch = np.zeros((len(adv_xs), 6))
                 actual_lr = now_lr / len(adv_xs)
                 if self.FLAGS.multi_grad_accumulate:
                     sess.run(self.zero_agrad_op)
@@ -269,28 +282,30 @@ class DistillTrainer(Trainer):
                         self.x: x_v if not self.FLAGS.distill_use_auged else auged_x_v,
                         self.stu_x: adv_x,
                         self.training_stu: True,
-                        self.labels: y_v,
+                        # self.labels: y_v,
                         # self.labels: s_y, # only use this for mixup
+                        self.labels: s_y if self.FLAGS.use_mixup else y_v,
                         self.learning_rate: actual_lr
                     }
                     if not self.FLAGS.multi_grad_accumulate:
-                        info_v, _ = sess.run([[self.loss, self.distillation, self.at_loss, self.accuracy, self.tea_accuracy], self.train_step], feed_dict=feed_dict)
+                        info_v, _ = sess.run([[self.loss, self.distillation, self.at_loss, self.grad_smooth_loss, self.accuracy, self.tea_accuracy], self.train_step], feed_dict=feed_dict)
                     else:
-                        info_v, _ = sess.run([[self.loss, self.distillation, self.at_loss, self.accuracy, self.tea_accuracy], self.accum_ops], feed_dict=feed_dict)
+                        info_v, _ = sess.run([[self.loss, self.distillation, self.at_loss, self.grad_smooth_loss, self.accuracy, self.tea_accuracy], self.accum_ops], feed_dict=feed_dict)
                     inner_info_v.append(info_v)
                 if self.FLAGS.multi_grad_accumulate:
                     sess.run(self.train_step, feed_dict={self.learning_rate: actual_lr})
                 run_time += time.time() - run_start_time
                 info_v_epoch += inner_info_v
                 if step % self.FLAGS.print_every == 0:
-                    print("\rEpoch {}: steps {}/{} loss: {}/{}/{}".format(epoch, step, steps_per_epoch, *np.mean(inner_info_v, axis=0)[:3]), end="")
+                    print("\rEpoch {}: steps {}/{} loss: {}/{}/{}/{}".format(epoch, step, steps_per_epoch, *np.mean(inner_info_v, axis=0)[:4]), end="")
             gen_time = gen_time / steps_per_epoch
             run_time = run_time / steps_per_epoch
             fetch_time = fetch_time / steps_per_epoch
             info_v_epoch /= steps_per_epoch
             duration = time.time() - start_time
             sec_per_batch = duration / steps_per_epoch
-            loss_v_epoch, _, _, acc_stu_epoch, acc_tea_epoch = np.mean(inner_info_v, axis=0)
+            # loss_v_epoch, _, _, acc_stu_epoch, acc_tea_epoch = np.mean(inner_info_v, axis=0)
+            loss_v_epoch, _, _, _, acc_stu_epoch, acc_tea_epoch = np.mean(info_v_epoch, axis=0)
             utils.log(("\r{}: Epoch {}; (average) loss: {:.3f}; (average) student accuracy: {:.2f} %; (average) teacher accuracy: {:.2f} %."
                        " {:.3f} sec/batch; gen time: {:.3f} sec/batch; run time: {:.3f} sec/batch; fetch time: {:.3f} sec/batch; {}")
                       .format(datetime.now(), epoch, loss_v_epoch, acc_stu_epoch * 100, acc_tea_epoch * 100, sec_per_batch, gen_time, run_time, fetch_time,
