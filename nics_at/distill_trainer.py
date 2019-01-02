@@ -35,7 +35,12 @@ class DistillTrainer(Trainer):
             "available_attacks_gray": [],
 
             # Training
+            "optimizer": {"type": "Momentum", "args": {"momentum": 0.9}},
+            "additional_info_attrs": ["distillation"],
             "gradient_smooth_reg": 0,
+            "gradient_norm_reg": 0,
+            "gradient_norm_reg_ord": 1,
+            "gradient_norm_reg": 0,
             "multiple_head_loss": False,
             "use_mixup": False,
             "mixup_alpha": 1.0,
@@ -161,8 +166,10 @@ class DistillTrainer(Trainer):
             self.original_loss = tf.reduce_mean([self.FLAGS.multiple_head_loss[i] * tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=logits)) for i, logits in enumerate(self.model_stu.cached[self.stu_x]["group_logits_list"] + [self.logits_stu])])
 
         self.loss = self.original_loss * self.FLAGS.theta
-        if self.FLAGS.gradient_smooth_reg: # input gradient smoothness of crossentropy loss
+        if self.FLAGS.gradient_smooth_reg or self.FLAGS.gradient_norm_reg: 
             self.input_gradient = tf.gradients(self.original_loss * self.FLAGS.theta, self.stu_x)[0]
+        if self.FLAGS.gradient_smooth_reg:
+            # input gradient smoothness of crossentropy loss
             vert_grad_diff = self.input_gradient[:, :-1, :, :] - self.input_gradient[:, 1:, :, :]
             hori_grad_diff = self.input_gradient[:, :, :-1, :] - self.input_gradient[:, :, 1:, :]
             grad_local_diff = tf.reduce_sum(tf.reduce_mean(vert_grad_diff ** 2, axis=0)) + tf.reduce_sum(tf.reduce_mean(hori_grad_diff ** 2, axis=0))
@@ -170,6 +177,18 @@ class DistillTrainer(Trainer):
             self.loss += self.grad_smooth_loss
         else:
             self.grad_smooth_loss = tf.constant(0.0)
+
+        if self.FLAGS.gradient_norm_reg:
+            if self.FLAGS.gradient_norm_reg_ord == 1:
+                self.grad_norm_loss = self.FLAGS.gradient_norm_reg * tf.reduce_sum(tf.reduce_mean(tf.abs(self.input_gradient), axis=0))
+            elif self.FLAGS.gradient_norm_reg_ord == 2:
+                self.grad_norm_loss = self.FLAGS.gradient_norm_reg * tf.reduce_sum(tf.reduce_mean(tf.square(self.input_gradient), axis=0))
+            else:
+                raise Exception("gradient_norm_reg_ord must be in {1, 2}")
+            self.loss += self.grad_norm_loss
+        else:
+            self.grad_norm_loss = tf.constant(0.0)
+
         if self.FLAGS.alpha != 0:
             self.loss += self.distillation * self.FLAGS.alpha
         if self.FLAGS.beta != 0:
@@ -196,7 +215,8 @@ class DistillTrainer(Trainer):
         # Initialize the optimizer
         self.learning_rate = tf.placeholder(tf.float32, shape=[])
         self.lr_adjuster = LrAdjuster.create_adjuster(self.FLAGS.adjust_lr_acc)
-        optimizer = tf.train.MomentumOptimizer(self.learning_rate, momentum=0.9)
+        # By default: optimizer = tf.train.MomentumOptimizer(self.learning_rate, momentum=0.9)
+        optimizer = getattr(tf.train, self.FLAGS.optimizer["type"].capitalize() + "Optimizer")(self.learning_rate, **self.FLAGS.optimizer["args"])
         # if not self.FLAGS.use_denoiser:
         #     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, self.FLAGS.model["namescope"]) # NOTE: student must have a non-empty namescope
         # else:
@@ -238,8 +258,7 @@ class DistillTrainer(Trainer):
         for epoch in range(1, self.FLAGS.epochs+1):
             self.train_attack_gen.new_epoch()
             start_time = time.time()
-            # info_v_epoch = np.zeros((self.FLAGS.update_per_batch, 5))
-            info_v_epoch = np.zeros((self.FLAGS.update_per_batch, 6))
+            info_v_epoch = np.zeros((self.FLAGS.update_per_batch, len(self.info_attrs)))
             now_lr = self.lr_adjuster.get_lr()
             if now_lr is None:
                 utils.log("End training as val acc not decay!!!")
@@ -272,8 +291,7 @@ class DistillTrainer(Trainer):
                 inner_info_v = []
                 run_start_time = time.time()
                 if step == 1 and info_v_epoch.shape[0] != len(adv_xs):
-                    # info_v_epoch = np.zeros((len(adv_xs), 5))
-                    info_v_epoch = np.zeros((len(adv_xs), 6))
+                    info_v_epoch = np.zeros((len(adv_xs), len(info_attrs)))
                 actual_lr = now_lr / len(adv_xs)
                 if self.FLAGS.multi_grad_accumulate:
                     sess.run(self.zero_agrad_op)
@@ -288,28 +306,32 @@ class DistillTrainer(Trainer):
                         self.learning_rate: actual_lr
                     }
                     if not self.FLAGS.multi_grad_accumulate:
-                        info_v, _ = sess.run([[self.loss, self.distillation, self.at_loss, self.grad_smooth_loss, self.accuracy, self.tea_accuracy], self.train_step], feed_dict=feed_dict)
+                        info_v, _ = sess.run([self.info_attrs, self.train_step], feed_dict=feed_dict)
                     else:
-                        info_v, _ = sess.run([[self.loss, self.distillation, self.at_loss, self.grad_smooth_loss, self.accuracy, self.tea_accuracy], self.accum_ops], feed_dict=feed_dict)
+                        info_v, _ = sess.run([self.info_attrs, self.accum_ops], feed_dict=feed_dict)
                     inner_info_v.append(info_v)
                 if self.FLAGS.multi_grad_accumulate:
                     sess.run(self.train_step, feed_dict={self.learning_rate: actual_lr})
                 run_time += time.time() - run_start_time
                 info_v_epoch += inner_info_v
                 if step % self.FLAGS.print_every == 0:
-                    print("\rEpoch {}: steps {}/{} loss: {}/{}/{}/{}".format(epoch, step, steps_per_epoch, *np.mean(inner_info_v, axis=0)[:4]), end="")
+                    print(("\rEpoch {}: steps {}/{} loss: {} additional: " + "/".join(["{}"] * self.num_addi_info))
+                          .format(epoch, step, steps_per_epoch, *np.mean(inner_info_v, axis=0)), end="")
             gen_time = gen_time / steps_per_epoch
             run_time = run_time / steps_per_epoch
             fetch_time = fetch_time / steps_per_epoch
             info_v_epoch /= steps_per_epoch
             duration = time.time() - start_time
             sec_per_batch = duration / steps_per_epoch
-            # loss_v_epoch, _, _, acc_stu_epoch, acc_tea_epoch = np.mean(inner_info_v, axis=0)
-            loss_v_epoch, _, _, _, acc_stu_epoch, acc_tea_epoch = np.mean(info_v_epoch, axis=0)
+            print_info = np.mean(info_v_epoch, axis=0)
+            acc_stu_epoch, acc_tea_epoch, loss_v_epoch = print_info[:3]
+            addi_info = "; ".join(["{k}: {v}".format(k=k, v=v) for k, v in zip(self.FLAGS.additional_info_attrs, print_info[3:])])
             utils.log(("\r{}: Epoch {}; (average) loss: {:.3f}; (average) student accuracy: {:.2f} %; (average) teacher accuracy: {:.2f} %."
-                       " {:.3f} sec/batch; gen time: {:.3f} sec/batch; run time: {:.3f} sec/batch; fetch time: {:.3f} sec/batch; {}")
+                       " {:.3f} sec/batch; gen time: {:.3f} sec/batch; run time: {:.3f} sec/batch; fetch time: {:.3f} sec/batch; {}\n\tadditional info: {};")
                       .format(datetime.now(), epoch, loss_v_epoch, acc_stu_epoch * 100, acc_tea_epoch * 100, sec_per_batch, gen_time, run_time, fetch_time,
-                              "" if not utils.PROFILING else "; ".join(["{}: {:.2f} ({:.3f} average) sec".format(k, t, t/num) for k, (num, t) in utils.all_profiled.iteritems()])), flush=True)
+                              "" if not utils.PROFILING else "; ".join(["{}: {:.2f} ({:.3f} average) sec".format(k, t, t/num) for k, (num, t) in utils.all_profiled.iteritems()]),
+                              addi_info
+                          ), flush=True)
             # End training batches
 
             # Test on the validation set
@@ -467,6 +489,10 @@ class DistillTrainer(Trainer):
             self.test(adv=True, name="loaded_teacher_copy")
 
         # Training
+        self.num_addi_info = len(self.FLAGS.additional_info_attrs)
+        self.info_attr_names = ["accuracy", "tea_accuracy", "loss"] + self.FLAGS.additional_info_attrs
+        self.info_attrs = [getattr(self, name) for name in self.info_attr_names]
+        print("will print additional informations during training: ", self.FLAGS.additional_info_attrs)
         utils.log("Start training...")
         self.train()
 

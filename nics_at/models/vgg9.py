@@ -17,6 +17,7 @@ class VGG9(QCNN):
         self.filter_size_div = params.get("filter_size_div", 1)
         self.use_bn = params.get("use_bn", True)
         self.use_bias = params.get("use_bias", True)
+        self.use_bn_renorm = params.get("use_bn_renorm", False)
 
     def _get_logits(self, inputs):
         weight_decay = self.weight_decay
@@ -29,7 +30,7 @@ class VGG9(QCNN):
              kernel_initializer=tf.contrib.layers.variance_scaling_initializer(), name=name_scope + "conv"+str(index_))
             if self.use_bn:
                 bn_ = tf.contrib.layers.batch_norm(conv_, is_training=self.training, scale=True,
-                                                   scope=name_scope+"bn"+str(index_), decay=0.9)
+                                                   scope=name_scope+"bn"+str(index_), decay=0.9, renorm=self.use_bn_renorm)
             else:
                 bn_ = conv_
             relu_ = tf.nn.relu(bn_, name=name_scope + "relu"+str(index_))

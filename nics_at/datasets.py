@@ -418,9 +418,49 @@ class Cifar10Dataset(Dataset):
         adv_imgs = tf.reshape(tf.stack(adv_imgs), (self.generated_adv_num, 32, 32, 3))
         return [img, auged_img, label, adv_imgs]
 
+class MnistDataset(Dataset):
+    def __init__(self, *args, **kwargs):
+        super(MnistDataset, self).__init__(*args, **kwargs)
+        self.image_shape = [28, 28, 1]
+        self.num_labels = 10
+        from tensorflow.examples.tutorials.mnist import input_data
+        self.data = input_data.read_data_sets("MNIST_data", one_hot=True)
+        self.train_num = self.data.train._num_examples
+        self.val_num = self.data.validation._num_examples
+
+    def start(self, sess):
+        pass
+
+    def end(self):
+        pass
+
+    def get_tensor_stub(self, mode):
+        """
+        Do not generate/aug data in a seperate thread as mnist is easy.
+        """
+        def next_batch():
+            x_batch, y_batch = getattr(self.data, mode).next_batch(self.batch_size)
+            x_batch = x_batch.reshape([-1] + self.image_shape)
+            y_batch = y_batch.astype(np.float32)
+            return x_batch, x_batch, y_batch, np.zeros((0, 28, 28, 1), dtype=np.float32)
+        return tf.py_func(next_batch, [], [tf.float32, tf.float32, tf.float32, tf.float32])
+
+    @property
+    def data_tensors(self):
+        if not self._gen:
+            self._gen = True
+            with tf.device("/cpu:0"):
+                self.imgs_t, self.auged_imgs_t, self.labels_t, self.adv_imgs_t = self.get_tensor_stub("train")
+                self.imgs_v, self.auged_imgs_v, self.labels_v, self.adv_imgs_v = self.get_tensor_stub("validation")
+        return (self.imgs_t, self.auged_imgs_t, self.labels_t, self.adv_imgs_t), (self.imgs_v, self.auged_imgs_v, self.labels_v, self.adv_imgs_v)
+
+    def build_label_dicts(self):
+        return None, None
+
 from gray_datasets import GrayCifar10Dataset, GrayTIDataset
 
 type_dataset_map = {
+    "mnist": MnistDataset,
     "cifar10": Cifar10Dataset,
     "tinyimagenet": TinyImageNetDataset,
     "gray_cifar10": GrayCifar10Dataset,

@@ -30,6 +30,7 @@ class Resnet(QCNN):
         self.batch_norm_momentum = params.get("batch_norm_momentum", 0.997)
         self.coarse_dropout = params.get("coarse_dropout", None)
         self.use_bias = params.get("use_bias", True)
+        self.use_bn_renorm = params.get("use_bn_renorm", False)
 
         self.kernel_size = 3
         self.conv_stride = 1
@@ -60,12 +61,12 @@ class Resnet(QCNN):
             return tf.layers.batch_normalization(
                 inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
                 momentum=self.batch_norm_momentum, epsilon=_BATCH_NORM_EPSILON, center=True,
-                scale=True, training=training, fused=True)
+                scale=True, training=training, fused=True, renorm=self.use_bn_renorm)
         else:
             return tf.layers.batch_normalization(
                 inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
                 momentum=self.batch_norm_momentum, epsilon=_BATCH_NORM_EPSILON, center=False,
-                scale=False, training=training, fused=True)
+                scale=False, training=training, fused=True, renorm=self.use_bn_renorm)
 
 
     def fixed_padding(self, inputs, kernel_size, data_format):
