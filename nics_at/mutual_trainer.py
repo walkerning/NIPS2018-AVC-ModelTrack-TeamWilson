@@ -107,7 +107,7 @@ class MutualTrainer(Trainer):
                 tf.nn.softmax_cross_entropy_with_logits(labels=reshape_labels, logits=logits))
 
             model_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, name_scope)
-            saver = tf.train.Saver(model_vars, max_to_keep=20)
+            saver = tf.train.Saver(model_vars, max_to_keep=10)
             index_label = tf.argmax(reshape_labels, axis=-1)
             correct = tf.equal(tf.argmax(logits, -1), index_label)
             accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
@@ -356,9 +356,9 @@ class MutualTrainer(Trainer):
             # Test on the validation set
             if epoch % self.FLAGS.test_frequency == 0:
                 test_accs = self.test(adv=True, name="normal_adv")
-                self.lr_adjuster.add_multiple_acc(test_accs)
+                is_best = self.lr_adjuster.add_multiple_acc(test_accs)
                 if self.FLAGS.train_dir:
-                    if epoch % self.FLAGS.save_every == 0:
+                    if is_best or (self.FLAGS.save_every > 0 and epoch % self.FLAGS.save_every == 0):
                         save_path = os.path.join(self.FLAGS.train_dir, str(epoch))
                         if not os.path.exists(save_path):
                             os.makedirs(save_path)

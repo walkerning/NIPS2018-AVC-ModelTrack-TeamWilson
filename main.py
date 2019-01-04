@@ -25,7 +25,7 @@ parser.add_argument("--config", type=str, default="./config.json",
                     help="Config files")
 parser.add_argument("--test-only", action="store_true", default=False, help="Only run test")
 parser.add_argument("--no-init-test", action="store_true", default=False, help="Do not run test before training")
-parser.add_argument("--save-every", default=5, type=int)
+parser.add_argument("--save-every", default=-1, type=int)
 parser.add_argument("--print-every", default=10, type=int, help="print every PRINT_EVERY step")
 parser.add_argument("--test-path", default=None, help="Used when test_only is true, dataset-specific arg to change test data.")
 parser.add_argument("--load-file-test", default=[], action="append", help="Used when test_only is true, test more stu models.")

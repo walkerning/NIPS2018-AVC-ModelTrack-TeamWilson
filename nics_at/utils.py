@@ -39,6 +39,38 @@ class LrAdjuster(object):
         self.adjust_type = cfg.get("adjust_type", "mult")
         assert self.adjust_type in {"mult", "add"}
 
+        self.num_epoch = 0
+        self.best_acc_epoch = 0
+        self.best_acc = None
+        self.accs = []
+        self.improve_criterion = cfg.get("improve_criterion", "any")
+        log("improve criterion: {}".format(self.improve_criterion))
+
+    def add_and_check_improve(self, acc):
+        self.num_epoch += 1
+        acc = np.array(acc)
+        self.accs.append(acc)
+        if self.best_acc is None or self._is_improve(acc):
+            print("improve at epoch {}".format(self.num_epoch))
+            is_best = True
+            if self.best_acc is None:
+                self.best_acc = np.zeros(acc.shape)
+            self.best_acc_epoch = self.num_epoch
+            self.best_acc = np.maximum(acc, self.best_acc)
+        else:
+            is_best = False
+            log("accs do not have improvements for {} epochs".format(self.num_epoch - self.best_acc_epoch))
+        return is_best
+
+    def _is_improve(self, acc):
+        if self.improve_criterion == "any":
+            return np.any(acc > self.best_acc)
+        elif self.improve_criterion == "all":
+            return np.all(acc > self.best_acc)
+        else:
+            assert isinstance(self.improve_criterion, (float, int))
+            return np.mean(acc - self.best_acc) > self.improve_criterion
+
     @classmethod
     def create_adjuster(cls, cfg, name="learning_rate"):
         ins = globals()[cfg.get("type", "ExpDecay") + "Adjuster"](cfg)
@@ -73,15 +105,16 @@ class ExpDecayAdjuster(LrAdjuster):
         assert self.decay_every or self.boundaries
         self.lr = cfg["start_lr"]
         self.decay = cfg["decay"]
-        self.epoch = 0
 
     def add_multiple_acc(self, *accs):
-        self.add()
+        return self.add(accs)
 
-    def add(self, *accs):
-        self.epoch += 1
+    def add(self, accs):
+        is_best = self.add_and_check_improve(accs)
         if (self.decay_every and self.epoch % self.decay_every == 0) or (self.boundaries and self.epoch in self.boundaries):
             self.adjust()
+
+        return is_best
 
 class CosineLrAdjuster(LrAdjuster):
     # CosineLrAdjuster will not call LrAdjuster.adjust, as it's a different adjust method
@@ -96,7 +129,7 @@ class CosineLrAdjuster(LrAdjuster):
         self.restarted_at = 0
 
     def add_multiple_acc(self, *accs):
-        self.add()
+        return self.add()
 
     def add(self, *accs):
         self.epoch += 1
@@ -120,50 +153,26 @@ class AccLrAdjuster(LrAdjuster):
         self.lr = cfg["start_lr"]
         self.decay = cfg["decay"]
 
-        self.num_epoch = 0
-        self.best_acc_epoch = 0
-        self.best_acc = None
-        self.accs = []
-        self.improve_criterion = cfg.get("improve_criterion", "any")
-        log("improve criterion: {}".format(self.improve_criterion))
-
-    def is_improve(self, acc):
-        if self.improve_criterion == "any":
-            return np.any(acc > self.best_acc)
-        elif self.improve_criterion == "all":
-            return np.all(acc > self.best_acc)
-        else:
-            assert isinstance(self.improve_criterion, (float, int))
-            return np.mean(acc - self.best_acc) > self.improve_criterion
-
     def add_multiple_acc(self, *acc):
-        self.num_epoch += 1
-        acc = np.array(acc)
-        self.accs.append(acc)
-        # if np.all(acc > self.best_acc):
-        if self.best_acc is None or self.is_improve(acc):
-            if self.best_acc is None:
-                self.best_acc = np.zeros(acc.shape)
-            self.best_acc_epoch = self.num_epoch
-        self.best_acc = np.maximum(acc, self.best_acc)
-        log("accs do not have improvements for {} epochs".format(self.num_epoch - self.best_acc_epoch))
+        is_best = self.add_and_check_improve(acc)
         # if or not to end training
         if self.end_epoch_thre and self.num_epoch - self.best_acc_epoch >= self.end_epoch_thre:
             self.lr = None
         elif self.num_epoch - self.best_acc_epoch >= self.decay_epoch_thre:
             self.adjust()
+        return is_best
 
-    def add(self, acc):
-        self.num_epoch += 1
-        self.accs.append(acc)
-        if self.best_acc is None or acc > self.best_acc:
-            self.best_acc_epoch = self.num_epoch
-            self.best_acc = acc
-        # if or not to end training
-        if self.num_epoch - self.best_acc_epoch > self.end_epoch_thre:
-            self.lr = None
-        elif self.num_epoch - self.best_acc_epoch > self.decay_epoch_thre:
-            self.adjust()
+    # def add(self, acc):
+    #     self.num_epoch += 1
+    #     self.accs.append(acc)
+    #     if self.best_acc is None or acc > self.best_acc:
+    #         self.best_acc_epoch = self.num_epoch
+    #         self.best_acc = acc
+    #     # if or not to end training
+    #     if self.num_epoch - self.best_acc_epoch > self.end_epoch_thre:
+    #         self.lr = None
+    #     elif self.num_epoch - self.best_acc_epoch > self.decay_epoch_thre:
+    #         self.adjust()
 
 class AccLrWithRestartAdjuster(AccLrAdjuster):
     def __init__(self, cfg):

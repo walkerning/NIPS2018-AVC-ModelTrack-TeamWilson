@@ -38,9 +38,9 @@ class DistillTrainer(Trainer):
             "optimizer": {"type": "Momentum", "args": {"momentum": 0.9}},
             "additional_info_attrs": ["distillation"],
             "gradient_smooth_reg": 0,
+            "gradient_smooth_reg_type": None,
             "gradient_norm_reg": 0,
             "gradient_norm_reg_ord": 1,
-            "gradient_norm_reg": 0,
             "multiple_head_loss": False,
             "use_mixup": False,
             "mixup_alpha": 1.0,
@@ -173,7 +173,12 @@ class DistillTrainer(Trainer):
             vert_grad_diff = self.input_gradient[:, :-1, :, :] - self.input_gradient[:, 1:, :, :]
             hori_grad_diff = self.input_gradient[:, :, :-1, :] - self.input_gradient[:, :, 1:, :]
             grad_local_diff = tf.reduce_sum(tf.reduce_mean(vert_grad_diff ** 2, axis=0)) + tf.reduce_sum(tf.reduce_mean(hori_grad_diff ** 2, axis=0))
-            self.grad_smooth_loss = self.FLAGS.gradient_smooth_reg * grad_local_diff
+            grad_smooth_coeff = self.FLAGS.gradient_smooth_reg
+            if self.FLAGS.gradient_smooth_reg_type == "loss_match":
+                grad_smooth_coeff = grad_smooth_coeff * self.loss / (grad_local_diff + 1e-8)
+            elif self.FLAGS.gradient_smooth_reg_type == "grad_match":
+                assert Exception("Not implemented now")
+            self.grad_smooth_loss = grad_smooth_coeff * grad_local_diff
             self.loss += self.grad_smooth_loss
         else:
             self.grad_smooth_loss = tf.constant(0.0)
@@ -315,8 +320,8 @@ class DistillTrainer(Trainer):
                 run_time += time.time() - run_start_time
                 info_v_epoch += inner_info_v
                 if step % self.FLAGS.print_every == 0:
-                    print(("\rEpoch {}: steps {}/{} loss: {} additional: " + "/".join(["{}"] * self.num_addi_info))
-                          .format(epoch, step, steps_per_epoch, *np.mean(inner_info_v, axis=0)), end="")
+                    print(("\rEpoch {}: steps {}/{} loss: {} additional: " + "/".join([str(n) + ":{}" for n in self.FLAGS.additional_info_attrs]))
+                          .format(epoch, step, steps_per_epoch, *np.mean(inner_info_v, axis=0)[2:]), end="")
             gen_time = gen_time / steps_per_epoch
             run_time = run_time / steps_per_epoch
             fetch_time = fetch_time / steps_per_epoch
@@ -337,11 +342,11 @@ class DistillTrainer(Trainer):
             # Test on the validation set
             if epoch % self.FLAGS.test_frequency == 0:
                 test_accs = self.test(adv=True, name="normal_adv")
-                self.lr_adjuster.add_multiple_acc(test_accs)
+                is_best = self.lr_adjuster.add_multiple_acc(test_accs)
                 if self.FLAGS.relu_thresh_schedule is not None:
                     self.relu_thresh_adjuster.add_multiple_acc(test_accs)
                 if self.FLAGS.train_dir:
-                    if epoch % self.FLAGS.save_every == 0:
+                    if is_best or (self.FLAGS.save_every > 0 and epoch % self.FLAGS.save_every == 0):
                         save_path = os.path.join(self.FLAGS.train_dir, str(epoch))
                         self.model_stu.save_checkpoint(save_path, sess)
                         utils.log("Saved student model to: ", save_path)
