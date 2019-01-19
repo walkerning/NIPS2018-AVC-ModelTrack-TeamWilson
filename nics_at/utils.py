@@ -111,7 +111,7 @@ class ExpDecayAdjuster(LrAdjuster):
 
     def add(self, accs):
         is_best = self.add_and_check_improve(accs)
-        if (self.decay_every and self.epoch % self.decay_every == 0) or (self.boundaries and self.epoch in self.boundaries):
+        if (self.decay_every and self.num_epoch % self.decay_every == 0) or (self.boundaries and self.num_epoch in self.boundaries):
             self.adjust()
 
         return is_best

@@ -1,23 +1,45 @@
 # -*- coding: utf-8 -*-
 
 import tensorflow as tf
+_relu = tf.nn.relu
 
-def huber_relu(inputs, thresh):
-    inputs = tf.maximum(inputs, 0)
-    quadratic = tf.minimum(inputs, thresh)
-    linear = (inputs - quadratic)
-    return 0.5 * quadratic**2 + thresh * linear
+# def huber_relu(inputs, thresh):
+#     inputs = tf.maximum(inputs, 0)
+#     quadratic = tf.minimum(inputs, thresh)
+#     linear = (inputs - quadratic)
+#     return 0.5 * quadratic**2 + thresh * linear
 
-def smooth_relu(inputs, thresh):
-    inputs = tf.maximum(inputs, 0)
-    return tf.where(inputs<thresh, inputs**2/thresh, inputs)
+# def smooth_relu(inputs, thresh):
+#     inputs = tf.maximum(inputs, 0)
+#     return tf.where(inputs<thresh, inputs**2/thresh, inputs)
 
 def thresh_relu(inputs, thresh):
     return tf.where(inputs > thresh, inputs, tf.zeros_like(inputs))
 
+_registered_grad = {}
+def get_neg_through_grad(alpha):
+    reg_name = "negative_through_gradient_{}".format(alpha)
+    if reg_name not in _registered_grad:
+        _registered_grad[reg_name] = 1
+        @tf.RegisterGradient(reg_name)
+        def _neg_through_grad(op, output_grad):
+            ones = tf.ones_like(op.inputs[0], dtype=tf.float32)
+            # print(op.inputs[0])
+            # return tf.where(op.inputs[0]>0., ones, tf.where(output_grad>0, tf.zeros_like(op.inputs[0], dtype=tf.float32), alpha*ones)) * output_grad # only pass negative gradient through relu when the activation is 0. let this unit to be more and more inactive, further away from being activated by chance at this input.
+            return tf.where(op.inputs[0]>0., ones, alpha*ones) * output_grad # leaky relu backpropagate
+    return reg_name
+
+def neg_through_relu(inputs, alpha=0.1):
+    G = tf.get_default_graph()
+    reg_name = get_neg_through_grad(alpha)
+    with G.gradient_override_map({"Relu": reg_name}):
+        return _relu(inputs)
+
 @tf.RegisterGradient("backthrough_thresh_gradient")
 def _grad(op, output_grad):
     return tf.where(op.inputs[0]>0, tf.ones_like(op.inputs[0]), tf.zeros_like(op.inputs[0])) * output_grad
+
+leaky_relu = tf.nn.leaky_relu
 
 def backthrough_thresh_relu(inputs, thresh):
     G = tf.get_default_graph()
