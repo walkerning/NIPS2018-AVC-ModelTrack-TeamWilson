@@ -7,7 +7,7 @@ from ..utils import tf_vars_before_after, handle_name_space
 
 class VGG(BaseTFModel):
     FRAMEWORK = "tensorflow"
-    def __init__(self, num_classes=200, substract_mean=[123.68, 116.78, 103.94], div=1., name_space=""):
+    def __init__(self, num_classes=200, substract_mean=[123.68, 116.78, 103.94], div=1., use_bn=True, use_bias=True, num_dense=2048, name_space=""):
         # no configuration now
         super(VGG, self).__init__()
         self.name_space = handle_name_space(name_space)
@@ -16,6 +16,9 @@ class VGG(BaseTFModel):
         if isinstance(self.substract_mean, str):
             self.substract_mean = np.load(self.substract_mean) # load mean from npy
         self.div = div
+        self.use_bn = use_bn
+        self.use_bias = use_bias
+        self.num_dense = num_dense
 
     @tf_vars_before_after
     def __call__(self, inputs, training):
@@ -23,8 +26,11 @@ class VGG(BaseTFModel):
             conv_ = tf.layers.conv2d(input_, filters=filters_, kernel_size=(kernel_size_,kernel_size_),
                                      strides=(stride_,stride_), padding="same", use_bias=False,
                                      name=name_scope + "conv"+str(index_))
-            bn_ = tf.contrib.layers.batch_norm(conv_, is_training=training, scale=True,
-                                               scope=name_scope+"bn"+str(index_), decay=0.9)
+            if self.use_bn:
+                bn_ = tf.contrib.layers.batch_norm(conv_, is_training=training, scale=True,
+                                                   scope=name_scope+"bn"+str(index_), decay=0.9)
+            else:
+                bn_ = conv_
             relu_ = tf.nn.relu(bn_, name=name_scope + "relu"+str(index_))
             if use_pool:
                 pool_ = tf.layers.max_pooling2d(relu_, name=name_scope+"pool"+str(index_), pool_size=(2, 2), strides=2)
@@ -44,10 +50,10 @@ class VGG(BaseTFModel):
             conv5_1, relu5_1 = conv_relu_pool(pool4, 7, 512, use_pool=False)
             conv5_2, relu5_2, pool5 = conv_relu_pool(relu5_1, 8, 512, use_pool=True)
             flat = tf.contrib.layers.flatten(pool5)
-            ip1 = tf.layers.dense(flat, units=2048, name="ip1")
+            ip1 = tf.layers.dense(flat, units=self.num_dense, name="ip1", use_bias=self.use_bias)
             relu6 = tf.nn.relu(ip1, name="relu6")
-            ip2 = tf.layers.dense(relu6, units=2048, name="ip2")
+            ip2 = tf.layers.dense(relu6, units=self.num_dense, name="ip2", use_bias=self.use_bias)
             relu7 = tf.nn.relu(ip2, name="relu7")
-            logits = tf.layers.dense(relu7, units=self.num_classes, name="logits")
+            logits = tf.layers.dense(relu7, units=self.num_classes, name="logits", use_bias=self.use_bias)
         return logits
 Model = VGG

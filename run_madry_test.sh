@@ -9,11 +9,11 @@ AGAIN_ONLY=${AGAIN_ONLY:-0}
 again=${AGAIN:-0}
 test_cw=${TEST_CW:-0}
 nat=${NAT:-./cfgs/cifar10/resnet_baseline.yaml}
-
+WHITE_ONLY=${WHITE_ONLY:-0}
 cfg=cfgs/cifar10/${name}.yaml
 
 if [[ ${AGAIN_ONLY} -eq 0 ]]; then
-  if [[ ${nat} != "0" ]]; then
+  if [[ ${nat} != "0" && ${WHITE_ONLY} -eq 0 ]]; then
       # resnet baseline/A_nat for now models.
       GPU=${gpu} TEST_FIRST=${TEST_FIRST} TESTTYPE=${testtype} IMAGE_TYPE=bin DATASET=cifar10 TEST_USING=${nat} TEST_RESNET=0 TEST_LOCAL=${cfg} LABEL_FILE=${label_file} bash test_baseline.sh ${name} results_madrytest/${phase}
   fi

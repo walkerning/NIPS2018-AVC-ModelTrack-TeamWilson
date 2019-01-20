@@ -213,11 +213,14 @@ if __name__ == '__main__':
     if args.save is not None:
         os.environ["OUTPUT_ADVERSARIAL_PATH"] = args.save
         for tp in args.type:
-            os.makedirs(os.path.join(args.save, tp), exist_ok=True)
+            dir_name = os.path.join(args.save, tp)
+            if not os.path.exists(dir_name):
+                os.makedirs(dir_name)
     if args.save_saliency is not None:
         for s_type in args.saliency_type:
-            os.makedirs(os.path.join(args.save_saliency, s_type), exist_ok=True)
-
+            dir_name = os.path.join(args.save_saliency, s_type)
+            if not os.path.exists(dir_name):
+                os.makedirs(dir_name)
     if args.verbose:
         print("verbose")
         logging.basicConfig(level=logging.INFO)

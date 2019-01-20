@@ -44,14 +44,21 @@ DEFAULT_VERSION = 2
 ################################################################################
 # Convenience functions for building the ResNet model.
 ################################################################################
-def batch_norm(inputs, training, data_format):
+def batch_norm(inputs, training, data_format, name=None, affine=True):
+  print("affine:", affine, training)
   """Performs a batch normalization using a standard set of parameters."""
   # We set fused=True for a significant performance boost. See
   # https://www.tensorflow.org/performance/performance_guide#common_fused_ops
-  return tf.layers.batch_normalization(
+  if affine:
+    return tf.layers.batch_normalization(
       inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
       momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
-      scale=True, training=training, fused=True)
+      scale=True, training=training, fused=True, name=name)
+  else:
+    return tf.layers.batch_normalization(
+      inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
+      momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=False,
+      scale=False, training=training, fused=True, name=name)
 
 
 def fixed_padding(inputs, kernel_size, data_format):
@@ -99,7 +106,7 @@ def conv2d_fixed_padding(inputs, filters, kernel_size, strides, data_format):
 # ResNet block definitions.
 ################################################################################
 def _building_block_v1(inputs, filters, training, projection_shortcut, strides,
-                       data_format):
+                       data_format, affine=True):
   """A single block for ResNet v1, without a bottleneck.
 
   Convolution then batch normalization then ReLU as described by:
@@ -127,18 +134,18 @@ def _building_block_v1(inputs, filters, training, projection_shortcut, strides,
   if projection_shortcut is not None:
     shortcut = projection_shortcut(inputs)
     shortcut = batch_norm(inputs=shortcut, training=training,
-                          data_format=data_format)
+                          data_format=data_format, affine=affine)
 
   inputs = conv2d_fixed_padding(
       inputs=inputs, filters=filters, kernel_size=3, strides=strides,
       data_format=data_format)
-  inputs = batch_norm(inputs, training, data_format)
+  inputs = batch_norm(inputs, training, data_format, affine=affine)
   inputs = tf.nn.relu(inputs)
 
   inputs = conv2d_fixed_padding(
       inputs=inputs, filters=filters, kernel_size=3, strides=1,
       data_format=data_format)
-  inputs = batch_norm(inputs, training, data_format)
+  inputs = batch_norm(inputs, training, data_format, affine=affine)
   inputs += shortcut
   inputs = tf.nn.relu(inputs)
 
@@ -146,7 +153,7 @@ def _building_block_v1(inputs, filters, training, projection_shortcut, strides,
 
 
 def _building_block_v2(inputs, filters, training, projection_shortcut, strides,
-                       data_format):
+                       data_format, affine=True, checks=None):
   """A single block for ResNet v2, without a bottleneck.
 
   Batch normalization then ReLu then convolution as described by:
@@ -170,9 +177,11 @@ def _building_block_v2(inputs, filters, training, projection_shortcut, strides,
     The output tensor of the block; shape should match inputs.
   """
   shortcut = inputs
-  inputs = batch_norm(inputs, training, data_format)
+  inputs = batch_norm(inputs, training, data_format, affine=affine)
   inputs = tf.nn.relu(inputs)
-
+  if checks is not None:
+    print("after first batch_norm: ", len(checks))
+    checks.append(inputs)
   # The projection shortcut should come after the first batch norm and ReLU
   # since it performs a 1x1 convolution.
   if projection_shortcut is not None:
@@ -181,8 +190,9 @@ def _building_block_v2(inputs, filters, training, projection_shortcut, strides,
   inputs = conv2d_fixed_padding(
       inputs=inputs, filters=filters, kernel_size=3, strides=strides,
       data_format=data_format)
-
-  inputs = batch_norm(inputs, training, data_format)
+  if checks is not None:
+    checks.append(inputs)
+  inputs = batch_norm(inputs, training, data_format, affine=affine)
   inputs = tf.nn.relu(inputs)
   inputs = conv2d_fixed_padding(
       inputs=inputs, filters=filters, kernel_size=3, strides=1,
@@ -222,24 +232,24 @@ def _bottleneck_block_v1(inputs, filters, training, projection_shortcut,
   if projection_shortcut is not None:
     shortcut = projection_shortcut(inputs)
     shortcut = batch_norm(inputs=shortcut, training=training,
-                          data_format=data_format)
+                          data_format=data_format, affine=affine)
 
   inputs = conv2d_fixed_padding(
       inputs=inputs, filters=filters, kernel_size=1, strides=1,
       data_format=data_format)
-  inputs = batch_norm(inputs, training, data_format)
+  inputs = batch_norm(inputs, training, data_format, affine=affine)
   inputs = tf.nn.relu(inputs)
 
   inputs = conv2d_fixed_padding(
       inputs=inputs, filters=filters, kernel_size=3, strides=strides,
       data_format=data_format)
-  inputs = batch_norm(inputs, training, data_format)
+  inputs = batch_norm(inputs, training, data_format, affine=affine)
   inputs = tf.nn.relu(inputs)
 
   inputs = conv2d_fixed_padding(
       inputs=inputs, filters=4 * filters, kernel_size=1, strides=1,
       data_format=data_format)
-  inputs = batch_norm(inputs, training, data_format)
+  inputs = batch_norm(inputs, training, data_format, affine=affine)
   inputs += shortcut
   inputs = tf.nn.relu(inputs)
 
@@ -247,7 +257,7 @@ def _bottleneck_block_v1(inputs, filters, training, projection_shortcut,
 
 
 def _bottleneck_block_v2(inputs, filters, training, projection_shortcut,
-                         strides, data_format):
+                         strides, data_format, affine=True):
   """A single block for ResNet v2, without a bottleneck.
 
   Similar to _building_block_v2(), except using the "bottleneck" blocks
@@ -279,7 +289,7 @@ def _bottleneck_block_v2(inputs, filters, training, projection_shortcut,
     The output tensor of the block; shape should match inputs.
   """
   shortcut = inputs
-  inputs = batch_norm(inputs, training, data_format)
+  inputs = batch_norm(inputs, training, data_format, affine=affine)
   inputs = tf.nn.relu(inputs)
 
   # The projection shortcut should come after the first batch norm and ReLU
@@ -291,13 +301,13 @@ def _bottleneck_block_v2(inputs, filters, training, projection_shortcut,
       inputs=inputs, filters=filters, kernel_size=1, strides=1,
       data_format=data_format)
 
-  inputs = batch_norm(inputs, training, data_format)
+  inputs = batch_norm(inputs, training, data_format, affine=affine)
   inputs = tf.nn.relu(inputs)
   inputs = conv2d_fixed_padding(
       inputs=inputs, filters=filters, kernel_size=3, strides=strides,
       data_format=data_format)
 
-  inputs = batch_norm(inputs, training, data_format)
+  inputs = batch_norm(inputs, training, data_format, affine=affine)
   inputs = tf.nn.relu(inputs)
   inputs = conv2d_fixed_padding(
       inputs=inputs, filters=4 * filters, kernel_size=1, strides=1,
@@ -307,7 +317,7 @@ def _bottleneck_block_v2(inputs, filters, training, projection_shortcut,
 
 
 def block_layer(inputs, filters, bottleneck, block_fn, blocks, strides,
-                training, name, data_format):
+                training, name, data_format, affine=True, checks=None):
   """Creates one layer of blocks for the ResNet model.
 
   Args:
@@ -339,10 +349,11 @@ def block_layer(inputs, filters, bottleneck, block_fn, blocks, strides,
 
   # Only the first block per block_layer uses projection_shortcut and strides
   inputs = block_fn(inputs, filters, training, projection_shortcut, strides,
-                    data_format)
-
+                    data_format, affine=affine, checks=checks)
+  if checks is not None:
+    checks.append(inputs)
   for _ in range(1, blocks):
-    inputs = block_fn(inputs, filters, training, None, 1, data_format)
+    inputs = block_fn(inputs, filters, training, None, 1, data_format, affine=affine)
 
   return tf.identity(inputs, name)
 
@@ -356,6 +367,8 @@ class ResNet(BaseTFModel):
                final_size, version=DEFAULT_VERSION, data_format=None, name=None,
                wide=1,
                substract_mean=[123.68, 116.78, 103.94], div=1., 
+               readout_group=None,
+               use_bias=True,
                name_space=""):
     """Creates a model for classifying an image.
 
@@ -414,6 +427,7 @@ class ResNet(BaseTFModel):
       else:
         self.block_fn = _building_block_v2
 
+    self.readout_group = readout_group
     self.wide = wide
     self.data_format = data_format
     self.num_classes = num_classes
@@ -428,6 +442,7 @@ class ResNet(BaseTFModel):
     self.block_strides = block_strides
     # self.final_size = final_size * self.wide
     self.final_size = self.num_filters * (2**(len(self.block_sizes)-1)) * self.wide
+    self.use_bias = use_bias
 
     self.substract_mean = substract_mean
     if isinstance(self.substract_mean, str):
@@ -451,6 +466,7 @@ class ResNet(BaseTFModel):
     input_size = tf.shape(inputs)[1:3]
     with tf.variable_scope(self.name_space):
       inputs = inputs - tf.cast(tf.constant(self.substract_mean), tf.float32)
+      self.checks = [inputs]
       if self.div and not np.all(self.div == 1.):
         inputs = inputs / self.div
       if self.data_format == 'channels_first':
@@ -463,7 +479,7 @@ class ResNet(BaseTFModel):
           inputs=inputs, filters=self.num_filters, kernel_size=self.kernel_size,
           strides=self.conv_stride, data_format=self.data_format)
       inputs = tf.identity(inputs, 'initial_conv')
-
+      self.checks.append(inputs)
       if self.first_pool_size:
         inputs = tf.layers.max_pooling2d(
             inputs=inputs, pool_size=self.first_pool_size,
@@ -474,38 +490,47 @@ class ResNet(BaseTFModel):
       for i, num_blocks in enumerate(self.block_sizes):
         num_filters = self.num_filters * (2**i) * self.wide
         inputs = block_layer(
-            inputs=inputs, filters=num_filters, bottleneck=self.bottleneck,
-            block_fn=self.block_fn, blocks=num_blocks,
-            strides=self.block_strides[i], training=training,
-            name='block_layer{}'.format(i + 1), data_format=self.data_format)
-
-      inputs = batch_norm(inputs, training, self.data_format)
-      inputs = tf.nn.relu(inputs)
-
-      final_conv = inputs
-
-      # The current top layer has shape
-      # `batch_size x pool_size x pool_size x final_size`.
-      # ResNet does an Average Pooling layer over pool_size,
-      # but that is the same as doing a reduce_mean. We do a reduce_mean
-      # here because it performs better than AveragePooling2D.
+          inputs=inputs, filters=num_filters, bottleneck=self.bottleneck,
+          block_fn=self.block_fn, blocks=num_blocks,
+          strides=self.block_strides[i], training=training,
+          name='block_layer{}'.format(i + 1), data_format=self.data_format,
+          affine=self.use_bias, checks=self.checks)
+        self.checks.append(inputs)
+        if self.readout_group is not None and i == self.readout_group:
+          break
       axes = [2, 3] if self.data_format == 'channels_first' else [1, 2]
-      inputs = tf.reduce_mean(inputs, axes, keep_dims=True)
-      inputs = tf.identity(inputs, 'final_reduce_mean')
-
-      inputs = tf.reshape(inputs, [-1, self.final_size])
-      readout_layer = tf.layers.Dense(
-          units=self.num_classes,
-          name='readout_layer')
-      inputs = readout_layer(inputs)
-      inputs = tf.identity(inputs, 'final_dense')
+      if self.readout_group is not None:
+        inputs = tf.nn.relu(batch_norm(inputs, training, self.data_format, name="bn_readout_group_{}".format(self.readout_group)))
+        final_conv = inputs
+        inputs = tf.layers.Dense(units=self.num_classes, name="readout_group_{}".format(self.readout_group))(tf.reduce_mean(inputs, axes), use_bias=self.use_bias)
+      else: # last group output
+        inputs = batch_norm(inputs, training, self.data_format, affine=self.use_bias)
+        inputs = tf.nn.relu(inputs)
+  
+        final_conv = inputs
+  
+        # The current top layer has shape
+        # `batch_size x pool_size x pool_size x final_size`.
+        # ResNet does an Average Pooling layer over pool_size,
+        # but that is the same as doing a reduce_mean. We do a reduce_mean
+        # here because it performs better than AveragePooling2D.
+        inputs = tf.reduce_mean(inputs, axes, keep_dims=True)
+        inputs = tf.identity(inputs, 'final_reduce_mean')
+        self.checks.append(inputs)  
+        self.layer_f1 = inputs = tf.reshape(inputs, [-1, self.final_size])
+        readout_layer = tf.layers.Dense(
+            units=self.num_classes,
+            name='readout_layer',
+          use_bias=self.use_bias)
+        inputs = readout_layer(inputs)
+        inputs = tf.identity(inputs, 'final_dense')
 
       # For gradcam
       one_hot = tf.one_hot(tf.argmax(inputs, axis=1), self.num_classes)
       grad_weights = tf.reduce_sum(inputs * one_hot)
       grad = tf.gradients(grad_weights, final_conv)
       mean_grad = tf.reduce_mean(grad[0], [2,3])
-      weighted_grad = tf.transpose(tf.reduce_mean(final_conv * mean_grad[:, :, None, None], axis=1, keepdims=True), [0, 2, 3, 1])
+      weighted_grad = tf.transpose(tf.reduce_mean(final_conv * mean_grad[:, :, None, None], axis=1, keep_dims=True), [0, 2, 3, 1])
       heatmap = tf.image.resize_bicubic(images=weighted_grad, size=input_size)
       heatmap = tf.maximum(heatmap, 0)
       heatmap = tf.cast(heatmap / tf.reduce_max(heatmap) * 255., tf.float32)
