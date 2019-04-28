@@ -1,0 +1,10 @@
+models:
+  - weight: 1
+    type: pt_adv_model
+    checkpoint: /home/foxfi/projects/pt_adv/results/madry_new/resnet18/continue/ckpt.t7
+    load_name_space: module
+    num_classes: 10
+    cfg:
+      model_type: resnet18
+      data_format: channels_first
+

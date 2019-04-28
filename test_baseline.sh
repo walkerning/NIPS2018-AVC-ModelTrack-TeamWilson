@@ -17,6 +17,8 @@ ADDI_NAME=${ADDI_NAME:-none} # docker addi name
 TEST_2000=${TEST_2000:-0} # using val 2000 to test
 TESTTYPE=${TESTTYPE:-transfer} # transfer/iterative transfer
 
+TEST_WHITEBOX=${TEST_WHITEBOX:-0}
+
 TEST_USING=${TEST_USING:-""} # transfer test using the model specfiied by this cfg
 TEST_RESNET=${TEST_RESNET:-1}
 TEST_INCEPTION=${TEST_INCEPTION:-0}
@@ -63,6 +65,11 @@ if [[ ! -z "${TEST_FIRST}" ]]; then
 fi
 
 mkdir -p ${result_dir}/${test_name}
+
+# test whitebox
+if [[ ${TEST_WHITEBOX} -gt 0 ]]; then
+    python benchmark/bm.py ${label_f} ${impath_arg} ${addi_arg} --gpu ${gpu} -t ${TESTTYPE}  ${forward_arg} ${dataset_arg} --save  ${result_dir}/${test_name}/ --white-box 2>&1 | tee ${result_dir}/${test_name}/${TESTTYPE}_whitebox.log
+fi
 
 # transfer test using another model
 if [[ ! -z ${TEST_USING} ]]; then

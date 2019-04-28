@@ -33,7 +33,7 @@ bms.update({n+"_targeted": globals()[n + "_attack"] for n in avail_attacks})
 avail_attacks = bms.keys()
 
 def main(reader, types, save, backward_cfg=None, forward_cfg=None, verbose=False, addi_name=None, adv_pattern_dir=None,
-         save_saliency=None, saliency_type=None, targeted_labels=None):
+         save_saliency=None, saliency_type=None, targeted_labels=None, white_box=False):
     if forward_cfg is None:
         print("Using container, addi_name: {}".format(addi_name))
         # instantiate blackbox and substitute model
@@ -62,10 +62,10 @@ def main(reader, types, save, backward_cfg=None, forward_cfg=None, verbose=False
     else:
         forward_model = create_fmodel_cfg(forward_cfg)
 
-    if any([n.endswith("transfer") for n in types]):
+    if not white_box and any([n.endswith("transfer") for n in types]):
         if backward_cfg is None:
             backward_cfg = os.environ.get("FMODEL_MODEL_CFG", None)
-            assert backward_cfg is not None, "Neither --backward-cfg nor FMODEL_MODEL_CFG env is provided or set"
+            assert backward_cfg, "Neither --backward-cfg nor FMODEL_MODEL_CFG env is provided or set"
             logging.warning("backward_cfg is not supplied on cmd line; use the environment variable value {} as backward config file".format(backward_cfg))
         backward_model = create_fmodel_cfg(backward_cfg)
 
@@ -125,7 +125,7 @@ def main(reader, types, save, backward_cfg=None, forward_cfg=None, verbose=False
                     target = target_label
                 else:
                     target = None
-                if not tp.endswith("transfer"):
+                if not tp.endswith("transfer") or white_box:
                     if tp.startswith("aug_"):
                         adversarial, suc = bms[tp](forward_model, image, label, verbose=verbose)
                     else:
@@ -205,6 +205,7 @@ if __name__ == '__main__':
     parser.add_argument("--save-saliency", default=None, help="Save saliency map to directory.")
     parser.add_argument("-s", "--saliency-type", default=["gradient"], action="append", choices=vis.available_methods, help="Save saliency map to directory.")
     parser.add_argument("--targeted-labels", default=None, help="A yaml file includes targeted label for every image, will use this label instead of random label in targeted attack.")
+    parser.add_argument("--white-box", action="store_true", default=False, help="use whitebox, will ignore `--backward-cfg` argument or `FMODEL_MODEL_CFG` env")
 
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
@@ -233,4 +234,4 @@ if __name__ == '__main__':
 
     print("CMD: ", " ".join(sys.argv))
 
-    main(reader, args.type, args.save is not None, args.backward_cfg, args.forward_cfg, verbose=args.verbose, addi_name=args.name, adv_pattern_dir=args.adv_pattern_dir, save_saliency=args.save_saliency, saliency_type=args.saliency_type, targeted_labels=args.targeted_labels)
+    main(reader, args.type, args.save is not None, args.backward_cfg, args.forward_cfg, verbose=args.verbose, addi_name=args.name, adv_pattern_dir=args.adv_pattern_dir, save_saliency=args.save_saliency, saliency_type=args.saliency_type, targeted_labels=args.targeted_labels, white_box=args.white_box)
