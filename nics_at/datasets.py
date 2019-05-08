@@ -457,6 +457,78 @@ class MnistDataset(Dataset):
     def build_label_dicts(self):
         return None, None
 
+class SVHNDataset(Dataset):
+    def __init__(self, *args, **kwargs):
+        super(SVHNDataset, self).__init__(*args, **kwargs)
+        # dataset_info is the specific dataset configs
+        self.image_shape = [32,32,3]
+        self.num_labels = 10
+
+    def load_filenames_labels(self, mode):
+        import yaml
+        filenames_labels = []
+        if self.test_path and mode == "val":
+            yaml_fname = self.test_path
+        else:
+            if mode == "train" and self.dataset_info.get("with_extra", False):
+                yaml_fname = "./svhn_extra.yaml"
+            else:
+                yaml_fname = "./svhn_{}.yaml".format(mode)
+        with open(yaml_fname, "r") as yaml_f:
+            fname_label_dct = yaml.load(yaml_f)
+        for fname, label in fname_label_dct.iteritems():
+            new_mode = "extra" if (self.dataset_info.get("with_extra", False) and mode == "train") else mode
+            filenames_label = [os.path.join("svhn", new_mode, fname), str(label)]
+            filenames_label += [os.path.join(adv_cfg["path"], new_mode, os.path.basename(fname).split(".")[0] + "." + adv_cfg["suffix"]) for adv_cfg in self.generated_adv]
+            filenames_labels.append(tuple(filenames_label))
+        setattr(self, mode + "_num", len(filenames_labels))
+        return filenames_labels
+
+    def build_label_dicts(self):
+        label_dict = {n: i for i, n in enumerate(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"])}
+        class_description = {}
+        return label_dict, class_description
+
+    def read_image(self, filename_q, mode):
+        item = filename_q.dequeue()
+        filename = item[0]
+        label = item[1]
+        file = tf.read_file(filename)
+        img = tf.reshape(tf.decode_raw(file, out_type=tf.uint8), (32, 32, 3))
+        img = tf.cast(img, tf.float32)
+
+        auged_img = img
+        if mode == "train":
+            # auged_img = tf.image.random_brightness(auged_img, 0.15)
+            # auged_img = tf.image.random_contrast(auged_img, 0.8, 1.25)
+            # auged_img = tf.image.random_hue(auged_img, 0.1)
+            # auged_img = tf.image.random_saturation(auged_img, 0.8, 1.25)
+            if self.aug_saltpepper is not None:
+                p = tf.random_uniform([], minval=self.aug_saltpepper[0], maxval=self.aug_saltpepper[1])
+                u = tf.expand_dims(tf.random_uniform([32, 32], maxval=1.0), axis=-1)
+                salt = tf.cast(u >= 1 - p/2, tf.float32) * 256
+                pepper = - tf.cast(u < p/2, tf.float32) * 256
+                auged_img = tf.clip_by_value(auged_img + salt + pepper, 0, 255)
+            if self.aug_gaussian is not None and (not self.more_augs or self.more_augs in {"v3", "v4", "v5"}):
+                if isinstance(self.aug_gaussian, (tuple, list)):
+                    eps = tf.random_uniform([], minval=self.aug_gaussian[0], maxval=self.aug_gaussian[1])
+                else:
+                    eps = self.aug_gaussian
+                noise = tf.random_normal([32, 32, 3], stddev=eps/np.sqrt(3)*256)
+                auged_img = tf.clip_by_value(auged_img + noise, 0, 255)
+
+        label = tf.string_to_number(label, tf.int32)
+        label = tf.cast(label, tf.uint8)
+        adv_imgs = []
+        for i in range(self.generated_adv_num):
+            adv_filename = item[i+2]
+            file = tf.read_file(adv_filename)
+            data = tf.decode_raw(file, out_type=tf.uint8)
+            data = tf.cast(tf.reshape(data, (32, 32, 3)), tf.float32)
+            adv_imgs.append(data)
+        adv_imgs = tf.reshape(tf.stack(adv_imgs), (self.generated_adv_num, 32, 32, 3))
+        return [img, auged_img, label, adv_imgs]
+
 from gray_datasets import GrayCifar10Dataset, GrayTIDataset
 
 type_dataset_map = {
@@ -464,7 +536,8 @@ type_dataset_map = {
     "cifar10": Cifar10Dataset,
     "tinyimagenet": TinyImageNetDataset,
     "gray_cifar10": GrayCifar10Dataset,
-    "gray_tinyimagenet": GrayTIDataset
+    "gray_tinyimagenet": GrayTIDataset,
+    "svhn": SVHNDataset
 }
 
 def get_dataset_cls(type_):
