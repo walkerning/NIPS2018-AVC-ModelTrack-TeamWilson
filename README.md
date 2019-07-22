@@ -1,4 +1,4 @@
-# adversarial_dmodels
+# Mutual Adversarial Training with Early-stop black-box Adversarial Examples
 
 Our team's code for the NIPS2018 vision adversarial robustness competition - model track. (Team Wilson, 2nd place)
 
