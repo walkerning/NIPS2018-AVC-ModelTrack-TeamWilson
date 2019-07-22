@@ -11,10 +11,11 @@ Our final submission (foolbox model-zoo compatible) is in https://github.com/wal
 ## Techniques
 **Training**
 * Gaussian/Salt-and-Pepper noises
-* Distill Adversarial Training (not so useful)
+* Distill Adversarial Training/High level guidance (not useful in the query-based attack threat model)
 * Mutual Adversarial Training
 * Early-stop blackbox adversarial examples
 * Gray-box adversarial training (we do not find this help)
+
 
 **Inference**
 * Model Ensemble
