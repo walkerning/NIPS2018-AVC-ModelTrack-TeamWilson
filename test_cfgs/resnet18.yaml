@@ -1,0 +1,39 @@
+models:
+  - weight: 1
+    type: pt_model
+    checkpoint: /home/foxfi/projects/aw_nas_clones/aw_nas_dev_2/results/robustness/baseliens/resnet20-eps16/100/model_state.pt
+    num_classes: 10
+    cfg:
+      model_type: resnet18
+      search_space_type: cnn
+      search_space_cfg:
+        # Schedulable attributes:
+        cell_layout: [0, 0, 1, 0, 1, 0, 1, 0]
+        num_cell_groups: 2
+        num_init_nodes: 1
+        num_layers: 8
+        num_node_inputs: 1
+        num_steps: 1
+        reduce_cell_groups:
+        - 1
+        shared_primitives: # this is not used
+        - none
+      final_model_type: cnn_final_model
+      final_model_cfg:
+        # Schedulable attributes: dropout_path_rate
+        genotypes: "normal_0=[('resnet_block', 0, 1)], reduce_1=[('resnet_block', 0, 1)]"
+        auxiliary_cfg: null
+        auxiliary_head: false
+        layer_channels: [64, 64, 64, 128, 128, 256, 256, 512, 512]
+        dropout_path_rate: 0.0
+        dropout_rate: 0.0
+        init_channels: 64
+        num_classes: 10
+        cell_use_preprocess: false
+        schedule_cfg: null
+        stem_multiplier: 1
+        use_stem: conv_bn_relu_3x3
+        stem_stride: 1
+        stem_affine: true
+      data_format: channels_first
+

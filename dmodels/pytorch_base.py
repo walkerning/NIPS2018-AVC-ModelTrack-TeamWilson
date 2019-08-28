@@ -7,8 +7,8 @@ from .base import BaseModel
 
 class BasePyTorchModel(BaseModel):
     def load_checkpoint(self, path, load_name_space=None, dict_key="state_dict"):
-        checkpoint = torch.load(path)
-        if isinstance(checkpoint, dict) and dict_key in checkpoint:
+        checkpoint = torch.load(path, map_location=torch.device("cpu"))
+        if isinstance(checkpoint, dict) and dict_key is not None and dict_key in checkpoint:
             state_dct = checkpoint[dict_key]
         else:
             state_dct = checkpoint
