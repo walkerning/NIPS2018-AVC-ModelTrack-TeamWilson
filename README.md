@@ -1,6 +1,6 @@
-# Mutual Adversarial Training with Early-stop black-box Adversarial Examples
+# Mutual Adversarial Training with Early-stop black-box Adversarial Examples 
 
-Our team's code for the NIPS2018 vision adversarial robustness competition - model track. (Team Wilson, 2nd place)
+Our team's code for the NIPS2018 vision adversarial robustness competition - model track. (Team Wilson, 2nd place) [slide](http://nicsefc.ee.tsinghua.edu.cn/media/publications/2019/NIPS2018Comp_304_slide.pdf)
 
 Training codes are under `train` branch, some training configuration files are under `cfgs/`.
 
