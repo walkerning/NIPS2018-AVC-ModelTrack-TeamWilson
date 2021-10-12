@@ -1,4 +1,4 @@
 foolbox==1.7.0
 tensorflow-gpu==1.4.0
-opencv-python==3.4.0
+opencv-python==3.4.7.28
 imgaug==0.2.6
